@@ -1,0 +1,135 @@
+.uv-painter-modal {
+    position: absolute;
+    /* Changed from fixed */
+    top: 0;
+    left: 0;
+    width: 100%;
+    /* Let the JS control the true width */
+    height: 100%;
+    /* Let the JS control the true height */
+    background-color: #121212;
+    display: flex;
+    flex-direction: column;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #eeeeee;
+    border-radius: 8px;
+    /* Smooth corners to match the node */
+    overflow: hidden;
+    /* Keep the child panels from spilling out */
+}
+
+.uv-painter-top-bar {
+    height: 50px;
+    background-color: #1e1e1e;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+    z-index: 2;
+    border-bottom: 1px solid #333;
+}
+
+.uv-painter-title {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.uv-painter-top-bar button {
+    background: #0e639c;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: bold;
+    transition: background 0.2s;
+}
+
+.uv-painter-top-bar button:hover {
+    background: #1177bb;
+}
+
+.uv-painter-top-bar button.close-btn {
+    background: #d32f2f;
+    margin-left: 10px;
+}
+
+.uv-painter-top-bar button.close-btn:hover {
+    background: #f44336;
+}
+
+.uv-painter-workspace {
+    display: flex;
+    flex-direction: row;
+    flex-grow: 1;
+    overflow: hidden;
+}
+
+.uv-painter-left {
+    width: 50%;
+    min-width: 250px;
+    position: relative;
+    background: #121212;
+}
+
+.uv-painter-right {
+    flex: 1;
+    min-width: 250px;
+    position: relative;
+    background: #1a1a1a;
+}
+
+.uv-painter-divider {
+    width: 4px;
+    background: #333;
+    cursor: col-resize;
+    z-index: 3;
+    transition: background 0.2s;
+}
+
+.uv-painter-divider:hover,
+.uv-painter-divider.active {
+    background: #0e639c;
+}
+
+.uv-painter-panel {
+    position: absolute;
+    top: 20px;
+    width: 280px;
+    background: rgba(30, 30, 30, 0.85);
+    backdrop-filter: blur(5px);
+    border: 1px solid #444;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.6);
+    z-index: 10;
+    pointer-events: auto;
+    max-height: calc(100vh - 90px);
+    overflow-y: auto;
+}
+
+.uv-painter-left-panel {
+    left: 20px;
+}
+
+.uv-painter-right-panel {
+    right: 20px;
+}
+
+.uv-painter-panel h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    font-size: 14px;
+    color: #cccccc;
+    text-transform: uppercase;
+    border-bottom: 1px solid #444;
+    padding-bottom: 5px;
+}
+
+.uv-painter-panel p {
+    font-size: 13px;
+    color: #aaaaaa;
+}
