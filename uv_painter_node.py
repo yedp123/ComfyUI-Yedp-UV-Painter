@@ -16,8 +16,8 @@ class UVPainterNode:
             }
         }
 
-    RETURN_TYPES = ("MASK", "STRING", "IMAGE")
-    RETURN_NAMES = ("MASK_BATCH", "PROMPT_LIST", "CAVITY_MAP")
+    RETURN_TYPES = ("MASK", "STRING", "IMAGE", "IMAGE")
+    RETURN_NAMES = ("MASK_BATCH", "PROMPT_LIST", "CAVITY_MAP", "NORMAL_MAP")
     FUNCTION = "process_uv_data"
     CATEGORY = "Yedp/Texture" 
 
@@ -63,6 +63,13 @@ class UVPainterNode:
             if prompt_list:
                 combined_prompts = "\n---\n".join(prompt_list)
 
+        import torch.nn.functional as F
+
+        normal_tensor = torch.zeros((1, height, width, 3), dtype=torch.float32)
+        normal_tensor[..., 0] = 0.5
+        normal_tensor[..., 1] = 0.5
+        normal_tensor[..., 2] = 1.0
+
         # Process Cavity Map
         if "cavity" in data and data["cavity"]:
             try:
@@ -70,10 +77,36 @@ class UVPainterNode:
                 img = Image.open(io.BytesIO(img_data)).convert("RGB")
                 img = img.resize((width, height))
                 cavity_tensor = torch.from_numpy(np.array(img).astype(np.float32) / 255.0).unsqueeze(0)
+                
+                # --- Normal Generation Math ---
+                # Convert cavity [B, H, W, C] to grayscale [B, 1, H, W]
+                gray = cavity_tensor.mean(dim=-1, keepdim=True).permute(0, 3, 1, 2)
+                
+                sobel_x = torch.tensor([[-1.0, 0.0, 1.0],
+                                        [-2.0, 0.0, 2.0],
+                                        [-1.0, 0.0, 1.0]], dtype=torch.float32).view(1, 1, 3, 3)
+                
+                sobel_y = torch.tensor([[-1.0, -2.0, -1.0],
+                                        [ 0.0,  0.0,  0.0],
+                                        [ 1.0,  2.0,  1.0]], dtype=torch.float32).view(1, 1, 3, 3)
+                
+                # Pad and convolve
+                gray_padded = F.pad(gray, (1, 1, 1, 1), mode='replicate')
+                grad_x = F.conv2d(gray_padded, sobel_x).permute(0, 2, 3, 1)
+                grad_y = F.conv2d(gray_padded, sobel_y).permute(0, 2, 3, 1)
+                
+                # --- Vector Packing ---
+                grad_z = torch.ones_like(grad_x)
+                
+                normals = torch.cat([grad_x, grad_y, grad_z], dim=-1)
+                normals = F.normalize(normals, p=2, dim=-1)
+                
+                normal_tensor = (normals + 1.0) * 0.5
+                
             except Exception as e:
-                print(f"Error decoding cavity map: {e}")
+                print(f"Error decoding cavity map or generating normal map: {e}")
 
-        return (mask_tensor, combined_prompts, cavity_tensor)
+        return (mask_tensor, combined_prompts, cavity_tensor, normal_tensor)
 
 class YedpAutoConditioner:
     @classmethod
