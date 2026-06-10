@@ -14,6 +14,39 @@ app.registerExtension({
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
         if (nodeData.name === "YedpUVPainter") {
 
+            function compressIndices(indicesArray) {
+                if (!indicesArray || indicesArray.length === 0) return [];
+                const sorted = [...indicesArray].sort((a, b) => a - b);
+                const ranges = [];
+                let start = sorted[0];
+                let prev = start;
+                for (let i = 1; i < sorted.length; i++) {
+                    if (sorted[i] !== prev + 1 && sorted[i] !== prev) {
+                        ranges.push([start, prev]);
+                        start = sorted[i];
+                    }
+                    prev = sorted[i];
+                }
+                ranges.push([start, prev]);
+                return ranges;
+            }
+
+            function decompressIndices(rangesArray) {
+                if (!rangesArray || !Array.isArray(rangesArray)) return [];
+                const indices = [];
+                for (const range of rangesArray) {
+                    if (Array.isArray(range) && range.length === 2) {
+                        const [start, end] = range;
+                        for (let i = start; i <= end; i++) {
+                            indices.push(i);
+                        }
+                    } else if (typeof range === 'number') {
+                        indices.push(range);
+                    }
+                }
+                return indices;
+            }
+
             const onNodeCreated = nodeType.prototype.onNodeCreated;
             nodeType.prototype.onNodeCreated = function () {
                 if (onNodeCreated) onNodeCreated.apply(this, arguments);
@@ -34,12 +67,29 @@ app.registerExtension({
                 this.domContainer.style.position = "absolute";
                 this.domContainer.style.transformOrigin = "0 0";
                 this.domContainer.style.display = "flex";
-                this.domContainer.style.flexDirection = "row";
+                this.domContainer.style.flexDirection = "column";
                 this.domContainer.style.backgroundColor = "#111";
                 this.domContainer.style.border = "1px solid #444";
                 this.domContainer.style.borderRadius = "4px";
                 this.domContainer.style.overflow = "hidden";
                 this.domContainer.style.zIndex = "10";
+
+                // Top Bar
+                const topBar = document.createElement("div");
+                topBar.style.display = "flex";
+                topBar.style.flexDirection = "row";
+                topBar.style.justifyContent = "space-between";
+                topBar.style.alignItems = "center";
+                topBar.style.padding = "5px 10px";
+                topBar.style.backgroundColor = "#222";
+                topBar.style.borderBottom = "2px solid #333";
+
+                // Main Area
+                const mainArea = document.createElement("div");
+                mainArea.style.display = "flex";
+                mainArea.style.flexDirection = "row";
+                mainArea.style.flex = "1";
+                mainArea.style.overflow = "hidden";
 
                 // Left Pane (3D Viewport)
                 const leftPane = document.createElement("div");
@@ -48,12 +98,8 @@ app.registerExtension({
                 leftPane.style.position = "relative";
                 leftPane.style.overflow = "hidden";
 
-                // Floating Load .obj Button inside Left Pane
+                // Load .obj Button (moved to Top Bar)
                 const loadContainer = document.createElement("div");
-                loadContainer.style.position = "absolute";
-                loadContainer.style.top = "10px";
-                loadContainer.style.left = "10px";
-                loadContainer.style.zIndex = "20";
                 loadContainer.style.backgroundColor = "rgba(0,0,0,0.6)";
                 loadContainer.style.padding = "5px";
                 loadContainer.style.borderRadius = "4px";
@@ -64,7 +110,13 @@ app.registerExtension({
                 fileInput.style.color = "#fff";
                 fileInput.style.fontSize = "12px";
                 loadContainer.appendChild(fileInput);
-                leftPane.appendChild(loadContainer);
+                
+                const leftControlsContainer = document.createElement("div");
+                leftControlsContainer.style.display = "flex";
+                leftControlsContainer.style.gap = "10px";
+                leftControlsContainer.style.alignItems = "center";
+                topBar.appendChild(leftControlsContainer);
+                leftControlsContainer.appendChild(loadContainer);
 
                 // Floating Toolbar
                 const toolbar = document.createElement("div");
@@ -134,16 +186,43 @@ app.registerExtension({
                 highlightCanvas2d.style.pointerEvents = "none";
                 rightPane.appendChild(highlightCanvas2d);
 
-                // Prompt Stack UI overlay
+                // Drawing Overlay Canvas
+                const drawingCanvas = document.createElement("canvas");
+                drawingCanvas.width = 1024;
+                drawingCanvas.height = 1024;
+                drawingCanvas.style.width = "100%";
+                drawingCanvas.style.height = "100%";
+                drawingCanvas.style.objectFit = "contain";
+                drawingCanvas.style.display = "block";
+                drawingCanvas.style.position = "absolute";
+                drawingCanvas.style.top = "0";
+                drawingCanvas.style.left = "0";
+                drawingCanvas.style.pointerEvents = "none";
+                rightPane.appendChild(drawingCanvas);
+
+                // Brush Cursor — appended to document.body so position:fixed works
+                const brushCursor = document.createElement("div");
+                brushCursor.id = "brushCursor";
+                brushCursor.style.position = "fixed";
+                brushCursor.style.border = "1px solid white";
+                brushCursor.style.borderRadius = "50%";
+                brushCursor.style.pointerEvents = "none";
+                brushCursor.style.transform = "translate(-50%, -50%)";
+                brushCursor.style.display = "none";
+                brushCursor.style.zIndex = "10000";
+                brushCursor.style.boxShadow = "0 0 2px rgba(0,0,0,0.5)";
+                document.body.appendChild(brushCursor);
+
+                // Prompt Stack UI overlay (moved to right side panel)
                 const promptStackContainer = document.createElement('div');
-                promptStackContainer.style.position = 'absolute';
-                promptStackContainer.style.top = '10px';
-                promptStackContainer.style.right = '10px';
-                promptStackContainer.style.width = '200px';
-                promptStackContainer.style.maxHeight = '90%';
+                promptStackContainer.style.width = '250px';
+                promptStackContainer.style.minWidth = '250px';
+                promptStackContainer.style.borderLeft = '2px solid #333';
+                promptStackContainer.style.backgroundColor = '#222';
                 promptStackContainer.style.display = 'flex';
                 promptStackContainer.style.flexDirection = 'column';
-                promptStackContainer.style.pointerEvents = 'auto';
+                promptStackContainer.style.padding = '10px';
+                promptStackContainer.style.boxSizing = 'border-box';
 
                 const newLayerBtn = document.createElement('button');
                 newLayerBtn.innerText = '+ New Layer';
@@ -230,9 +309,217 @@ app.registerExtension({
                 // Move wireframe UI directly over the Three.js viewport
                 leftPane.appendChild(wireframeControls);
 
+                let currentToolMode = 'MASK';
+                let currentBrushSize = 5;
+
+                const toolModeContainer = document.createElement('div');
+                toolModeContainer.style.display = 'flex';
+                toolModeContainer.style.gap = '5px';
+
+                const modes = [
+                    { id: 'MASK', label: 'Select (Mask)' },
+                    { id: 'SKETCH', label: 'Draw (Canny)' },
+                    { id: 'PATCH', label: 'Heal (Inpaint)' }
+                ];
+
+                modes.forEach(mode => {
+                    const btn = document.createElement('button');
+                    btn.innerText = mode.label;
+                    btn.style.flex = '1';
+                    btn.style.padding = '5px';
+                    btn.style.fontSize = '11px';
+                    btn.style.cursor = 'pointer';
+                    btn.style.border = '1px solid #666';
+                    btn.style.borderRadius = '4px';
+                    btn.style.background = mode.id === 'MASK' ? '#2196F3' : '#333';
+                    btn.style.color = '#fff';
+
+                    btn.addEventListener('click', () => {
+                        currentToolMode = mode.id;
+                        Array.from(toolModeContainer.children).forEach(c => {
+                            c.style.background = '#333';
+                        });
+                        btn.style.background = '#2196F3';
+                        
+                        // Update cursor
+                        if (currentToolMode === 'SKETCH' || currentToolMode === 'PATCH') {
+                            drawingCanvas.style.cursor = 'none';
+                            canvas2d.style.cursor = 'none';
+                        } else {
+                            drawingCanvas.style.cursor = 'default';
+                            canvas2d.style.cursor = 'default';
+                            if (typeof brushCursor !== 'undefined') brushCursor.style.display = 'none';
+                        }
+                        
+                        // Clear any active selections/highlights when switching modes
+                        if (currentToolMode !== 'MASK') {
+                            handleHover(null);
+                        }
+                        
+                        // Redraw strokes to toggle visibility
+                        if (typeof redrawStrokes === 'function') redrawStrokes();
+                    });
+                    toolModeContainer.appendChild(btn);
+                });
+
+                topBar.appendChild(toolModeContainer);
+
+                // Save / Load Project buttons
+                const projectBtnContainer = document.createElement('div');
+                projectBtnContainer.style.display = 'flex';
+                projectBtnContainer.style.gap = '5px';
+
+                const saveProjectBtn = document.createElement('button');
+                saveProjectBtn.innerText = '💾 Save Project';
+                saveProjectBtn.style.padding = '5px 10px';
+                saveProjectBtn.style.fontSize = '11px';
+                saveProjectBtn.style.cursor = 'pointer';
+                saveProjectBtn.style.border = '1px solid #2e7d32';
+                saveProjectBtn.style.borderRadius = '4px';
+                saveProjectBtn.style.background = '#388E3C';
+                saveProjectBtn.style.color = '#fff';
+                saveProjectBtn.style.fontWeight = 'bold';
+                saveProjectBtn.style.whiteSpace = 'nowrap';
+                saveProjectBtn.addEventListener('mouseenter', () => { saveProjectBtn.style.background = '#43A047'; });
+                saveProjectBtn.addEventListener('mouseleave', () => { saveProjectBtn.style.background = '#388E3C'; });
+
+                const loadProjectBtn = document.createElement('button');
+                loadProjectBtn.innerText = '📂 Load Project';
+                loadProjectBtn.style.padding = '5px 10px';
+                loadProjectBtn.style.fontSize = '11px';
+                loadProjectBtn.style.cursor = 'pointer';
+                loadProjectBtn.style.border = '1px solid #1565C0';
+                loadProjectBtn.style.borderRadius = '4px';
+                loadProjectBtn.style.background = '#1976D2';
+                loadProjectBtn.style.color = '#fff';
+                loadProjectBtn.style.fontWeight = 'bold';
+                loadProjectBtn.style.whiteSpace = 'nowrap';
+                loadProjectBtn.addEventListener('mouseenter', () => { loadProjectBtn.style.background = '#1E88E5'; });
+                loadProjectBtn.addEventListener('mouseleave', () => { loadProjectBtn.style.background = '#1976D2'; });
+
+                // Save Project Logic
+                saveProjectBtn.addEventListener('click', () => {
+                    console.log("💾 Packaging raw project data...");
+                    const projectLayers = [];
+                    Object.values(maskState).forEach(layer => {
+                        // BUG FIX: Do not compress! Save full arrays and images to retain multi-mesh support!
+                        projectLayers.push({
+                            id: layer.id,
+                            prompt: layer.prompt,
+                            name: layer.inputRow.querySelectorAll('input[type="text"]')[0].value,
+                            faces: layer.faces, 
+                            strokes: layer.strokes || [],
+                            mask: layer.savedMask || "",
+                            sketch: layer.savedSketch || "",
+                            patch: layer.savedPatch || ""
+                        });
+                    });
+                    const projectPayload = {
+                        version: 1,
+                        layers: projectLayers,
+                        cavity: currentBakedCavity
+                    };
+                    const jsonStr = JSON.stringify(projectPayload, null, 2);
+                    const blob = new Blob([jsonStr], { type: 'application/json' });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = 'uv_painter_project.json';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(a.href);
+                });
+
+                // Load Project Logic
+                loadProjectBtn.addEventListener('click', () => {
+                    const fileInputProject = document.createElement('input');
+                    fileInputProject.type = 'file';
+                    fileInputProject.accept = '.json';
+                    fileInputProject.style.display = 'none';
+                    document.body.appendChild(fileInputProject);
+
+                    fileInputProject.addEventListener('change', (evt) => {
+                        const file = evt.target.files[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = (readerEvt) => {
+                            try {
+                                const data = JSON.parse(readerEvt.target.result);
+                                if (!data.layers || !Array.isArray(data.layers)) {
+                                    console.error('UV Painter: Invalid project file — no layers array found.');
+                                    return;
+                                }
+
+                                // Clear existing state
+                                Object.keys(maskState).forEach(k => delete maskState[k]);
+                                promptStack.innerHTML = '';
+                                layerCount = 0;
+                                activeLayerId = null;
+
+                                // Set loading guard to prevent intermediate redraws/syncs
+                                isLoadingProject = true;
+
+                                // Rebuild layers
+                                data.layers.forEach(l => {
+                                    createNewLayer();
+                                    const layerId = activeLayerId;
+                                    const layerObj = maskState[layerId];
+
+                                    layerObj.prompt = l.prompt || '';
+                                    layerObj.inputRow.querySelector('.prompt-input').value = layerObj.prompt;
+
+                                    const nameInput = layerObj.inputRow.querySelectorAll('input[type="text"]')[0];
+                                    if (l.name && nameInput) {
+                                        nameInput.value = l.name;
+                                    }
+
+                                    // BUG FIX: Restore full face arrays and re-instantiate Three.js Vectors
+                                    if (l.faces && l.faces.length > 0) {
+                                        layerObj.faces = l.faces;
+                                        layerObj.faces.forEach(f => {
+                                            if (f.vA) f.vA = new THREE.Vector3(f.vA.x, f.vA.y, f.vA.z);
+                                            if (f.vB) f.vB = new THREE.Vector3(f.vB.x, f.vB.y, f.vB.z);
+                                            if (f.vC) f.vC = new THREE.Vector3(f.vC.x, f.vC.y, f.vC.z);
+                                        });
+                                    } else {
+                                        layerObj.faces = [];
+                                    }
+
+                                    layerObj.strokes = l.strokes || [];
+                                    layerObj.savedMask = l.mask || "";
+                                    layerObj.savedSketch = l.sketch || "";
+                                    layerObj.savedPatch = l.patch || "";
+                                });
+
+                                if (data.cavity) {
+                                    currentBakedCavity = data.cavity;
+                                }
+
+                                // Clear loading guard BEFORE redraw
+                                isLoadingProject = false;
+                                console.log("📂 Project parsing complete. Redrawing...");
+
+                                redrawMasks();
+                                syncData();
+                                console.log('UV Painter: Project loaded successfully.');
+                            } catch (err) {
+                                isLoadingProject = false;
+                                console.error('UV Painter: Failed to parse project file.', err);
+                            }
+                        };
+                        reader.readAsText(file);
+                        document.body.removeChild(fileInputProject);
+                    });
+
+                    fileInputProject.click();
+                });
+
+                projectBtnContainer.appendChild(saveProjectBtn);
+                projectBtnContainer.appendChild(loadProjectBtn);
+                leftControlsContainer.appendChild(projectBtnContainer);
+
                 promptStackContainer.appendChild(newLayerBtn);
                 promptStackContainer.appendChild(promptStack);
-                rightPane.appendChild(promptStackContainer);
 
                 toggleWireframe.addEventListener('change', (e) => {
                     if (currentMesh) {
@@ -259,6 +546,9 @@ app.registerExtension({
                 const maskState = {};
                 let currentMesh = null;
                 let lastGeneratedImage = null;
+                let isLoadingProject = false;
+                let isSyncingData = false;
+                let lastSyncTime = 0;
 
                 function buildUVMap(mesh) {
                     const geometry = mesh.geometry;
@@ -345,12 +635,60 @@ app.registerExtension({
                     return mesh.userData.islandIdToFaces[islandId] || [startFaceIndex];
                 }
 
+                function reconstructLayerObjects(rootObject) {
+                    if (!rootObject) return;
+                    let mesh = null;
+                    rootObject.traverse((child) => {
+                        if (child.isMesh && !mesh) mesh = child;
+                    });
+                    if (!mesh || !mesh.geometry) return;
+                    
+                    const uvAttr = mesh.geometry.attributes.uv;
+                    const posAttr = mesh.geometry.attributes.position;
+                    const index = mesh.geometry.index;
+                    let needsSync = false;
+
+                    Object.values(maskState).forEach(layer => {
+                        if (layer.pendingFaceIndices) {
+                            layer.faces = [];
+                            layer.pendingFaceIndices.forEach(fIdx => {
+                                let a, b, c;
+                                if (index) {
+                                    a = index.getX(fIdx * 3); b = index.getX(fIdx * 3 + 1); c = index.getX(fIdx * 3 + 2);
+                                } else {
+                                    a = fIdx * 3; b = fIdx * 3 + 1; c = fIdx * 3 + 2;
+                                }
+
+                                const uvA = { x: uvAttr.getX(a), y: uvAttr.getY(a) };
+                                const uvB = { x: uvAttr.getX(b), y: uvAttr.getY(b) };
+                                const uvC = { x: uvAttr.getX(c), y: uvAttr.getY(c) };
+
+                                const vA = new THREE.Vector3(posAttr.getX(a), posAttr.getY(a), posAttr.getZ(a)).applyMatrix4(mesh.matrixWorld);
+                                const vB = new THREE.Vector3(posAttr.getX(b), posAttr.getY(b), posAttr.getZ(b)).applyMatrix4(mesh.matrixWorld);
+                                const vC = new THREE.Vector3(posAttr.getX(c), posAttr.getY(c), posAttr.getZ(c)).applyMatrix4(mesh.matrixWorld);
+
+                                layer.faces.push({ meshUuid: mesh.uuid, faceIndex: fIdx, uvA, uvB, uvC, vA, vB, vC });
+                            });
+                            delete layer.pendingFaceIndices;
+                            needsSync = true;
+                        }
+                    });
+
+                    if (needsSync) {
+                        redrawMasks();
+                        syncData();
+                    }
+                }
+
                 const hiddenCanvas = document.createElement('canvas');
                 hiddenCanvas.width = 1024;
                 hiddenCanvas.height = 1024;
 
-                this.domContainer.appendChild(leftPane);
-                this.domContainer.appendChild(rightPane);
+                mainArea.appendChild(leftPane);
+                mainArea.appendChild(rightPane);
+                mainArea.appendChild(promptStackContainer);
+                this.domContainer.appendChild(topBar);
+                this.domContainer.appendChild(mainArea);
 
                 const loadingOverlay = document.createElement('div');
                 loadingOverlay.style.position = 'absolute';
@@ -375,33 +713,111 @@ app.registerExtension({
 
                 const syncData = () => {
                     if (!this.painterDataWidget) return;
+                    if (isLoadingProject) return;
 
                     const layers = [];
                     const w = canvas2d.width;
                     const h = canvas2d.height;
+                    
                     const ctx = hiddenCanvas.getContext('2d');
+                    
+                    // Create dedicated offscreen canvases for Sketch and Patch outputs
+                    const sketchCanvas = document.createElement('canvas');
+                    sketchCanvas.width = w; sketchCanvas.height = h;
+                    const sketchCtx = sketchCanvas.getContext('2d');
+
+                    const patchCanvas = document.createElement('canvas');
+                    patchCanvas.width = w; patchCanvas.height = h;
+                    const patchCtx = patchCanvas.getContext('2d');
+
+                    const isObjLoaded = currentMesh !== null;
 
                     Object.values(maskState).forEach(layer => {
-                        ctx.clearRect(0, 0, w, h);
-                        ctx.fillStyle = '#ffffff';
-                        ctx.strokeStyle = '#ffffff';
-                        ctx.lineWidth = 1;
+                        // Fallback to the loaded images if the OBJ isn't loaded yet
+                        let maskBase64 = layer.savedMask || "";
+                        let sketchBase64 = layer.savedSketch || "";
+                        let patchBase64 = layer.savedPatch || "";
 
-                        layer.faces.forEach(f => {
-                            ctx.beginPath();
-                            ctx.moveTo(f.uvA.x * w, (1 - f.uvA.y) * h);
-                            ctx.lineTo(f.uvB.x * w, (1 - f.uvB.y) * h);
-                            ctx.lineTo(f.uvC.x * w, (1 - f.uvC.y) * h);
-                            ctx.closePath();
-                            ctx.fill();
-                            ctx.stroke();
-                        });
+                        // Only attempt to redraw if we have the 3D model loaded OR we have active brush strokes
+                        if (isObjLoaded || (layer.strokes && layer.strokes.length > 0)) {
+                            ctx.clearRect(0, 0, w, h);
+                            
+                            // ControlNet and Inpaint maps require a pure black background
+                            sketchCtx.fillStyle = '#000000';
+                            sketchCtx.fillRect(0, 0, w, h);
+                            patchCtx.fillStyle = '#000000';
+                            patchCtx.fillRect(0, 0, w, h);
+
+                            // 1. Draw Geometry Masks (Blue/Green Polygons)
+                            ctx.fillStyle = '#ffffff';
+                            ctx.strokeStyle = '#ffffff';
+                            ctx.lineWidth = 1;
+
+                            if (isObjLoaded && layer.faces) {
+                                layer.faces.forEach(f => {
+                                    ctx.beginPath();
+                                    ctx.moveTo(f.uvA.x * w, (1 - f.uvA.y) * h);
+                                    ctx.lineTo(f.uvB.x * w, (1 - f.uvB.y) * h);
+                                    ctx.lineTo(f.uvC.x * w, (1 - f.uvC.y) * h);
+                                    ctx.closePath();
+                                    ctx.fill();
+                                    ctx.stroke();
+                                });
+                                // Only overwrite the saved geometry mask if the 3D model is actually loaded!
+                                maskBase64 = hiddenCanvas.toDataURL("image/png");
+                                layer.savedMask = maskBase64;
+                            }
+
+                            // 2. Draw Strokes to their respective separate canvases
+                            if (layer.strokes && layer.strokes.length > 0) {
+                                layer.strokes.forEach(stroke => {
+                                    const activeCtx = stroke.mode === 'SKETCH' ? sketchCtx : patchCtx;
+                                    
+                                    activeCtx.lineWidth = stroke.size;
+                                    activeCtx.lineCap = 'round';
+                                    activeCtx.lineJoin = 'round';
+                                    activeCtx.strokeStyle = '#ffffff'; // Both Canny and Inpaint use white strokes
+                                    
+                                    if (stroke.mode === 'PATCH') {
+                                        activeCtx.shadowColor = '#ffffff';
+                                        activeCtx.shadowBlur = 10; // Soft edge for inpainting
+                                    } else {
+                                        activeCtx.shadowBlur = 0; // Hard edge for Canny
+                                    }
+
+                                    const pts = stroke.points;
+                                    if (pts.length > 1) {
+                                        activeCtx.beginPath();
+                                        activeCtx.moveTo(pts[0][0], pts[0][1]);
+                                        for (let i = 1; i < pts.length; i++) {
+                                            activeCtx.lineTo(pts[i][0], pts[i][1]);
+                                        }
+                                        activeCtx.stroke();
+                                    } else if (pts.length === 1) {
+                                        activeCtx.beginPath();
+                                        activeCtx.arc(pts[0][0], pts[0][1], stroke.size / 2, 0, Math.PI * 2);
+                                        activeCtx.fillStyle = activeCtx.strokeStyle;
+                                        activeCtx.fill();
+                                    }
+                                });
+                                
+                                sketchBase64 = sketchCanvas.toDataURL("image/png");
+                                layer.savedSketch = sketchBase64;
+                                patchBase64 = patchCanvas.toDataURL("image/png");
+                                layer.savedPatch = patchBase64;
+                            }
+                        }
+
+                        const rawIndices = layer.pendingFaceIndices || (layer.faces ? layer.faces.map(f => f.faceIndex) : []);
 
                         layers.push({
                             prompt: layer.prompt,
                             name: layer.inputRow.querySelectorAll('input[type="text"]')[0].value,
-                            mask: hiddenCanvas.toDataURL("image/png"),
-                            faces: layer.faces
+                            mask: maskBase64,
+                            sketch: sketchBase64,
+                            patch: patchBase64,
+                            faces: compressIndices(rawIndices),
+                            strokes: layer.strokes || []
                         });
                     });
 
@@ -410,7 +826,15 @@ app.registerExtension({
                         cavity: currentBakedCavity
                     };
 
+                    isSyncingData = true;
+                    lastSyncTime = Date.now();
                     this.painterDataWidget.value = JSON.stringify(payload);
+                    isSyncingData = false;
+                    
+                    // SAFE AUTO-SAVE: Fired only at the completion of actions (clicks, keypresses, mouseup)
+                    if (app.graph) {
+                        app.graph.setDirtyCanvas(true, false);
+                    }
                 };
 
                 // --- Three.js Initialization ---
@@ -675,6 +1099,7 @@ app.registerExtension({
                         requestAnimationFrame(() => {
                             setTimeout(() => {
                                 currentBakedCavity = bakeCavityMap(object);
+                                reconstructLayerObjects(currentMesh);
                                 redrawMasks();
                                 syncData();
                                 loadingOverlay.style.display = 'none';
@@ -690,6 +1115,7 @@ app.registerExtension({
                 const mouse = new THREE.Vector2();
 
                 renderer.domElement.addEventListener('pointerdown', (e) => {
+                    if (currentToolMode !== 'MASK') return;
                     const rect = renderer.domElement.getBoundingClientRect();
                     mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
                     mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -730,6 +1156,7 @@ app.registerExtension({
                 renderer.domElement.addEventListener('mouseleave', () => handleHover(null));
 
                 function handleFaceClick(hit) {
+                    if (currentToolMode !== 'MASK') return;
                     if (!hit || !hit.object || !hit.object.userData) return;
                     
                     const isIslandMode = islandRadio.checked;
@@ -755,15 +1182,31 @@ app.registerExtension({
                     
                     const startFaceExists = maskState[layerId].faces.some(f => f.faceIndex === startFaceIndex && f.meshUuid === hit.object.uuid);
 
-                    facesToProcess.forEach(fIdx => {
-                        const existingIndex = maskState[layerId].faces.findIndex(f => f.faceIndex === fIdx && f.meshUuid === hit.object.uuid);
-
-                        if (startFaceExists) {
+                    if (startFaceExists) {
+                        // DESELECT: Remove entirely from the active layer
+                        facesToProcess.forEach(fIdx => {
+                            const existingIndex = maskState[layerId].faces.findIndex(f => f.faceIndex === fIdx && f.meshUuid === hit.object.uuid);
                             if (existingIndex !== -1) {
                                 maskState[layerId].faces.splice(existingIndex, 1);
                                 hasChanges = true;
                             }
-                        } else {
+                        });
+                    } else {
+                        // SELECT: Steal from other layers, then add to active layer
+                        facesToProcess.forEach(fIdx => {
+                            // 1. Enforce Mutual Exclusivity (Steal from all other layers)
+                            Object.entries(maskState).forEach(([otherLayerId, otherLayer]) => {
+                                if (otherLayerId !== layerId) {
+                                    const otherIndex = otherLayer.faces.findIndex(f => f.faceIndex === fIdx && f.meshUuid === hit.object.uuid);
+                                    if (otherIndex !== -1) {
+                                        otherLayer.faces.splice(otherIndex, 1);
+                                        hasChanges = true;
+                                    }
+                                }
+                            });
+
+                            // 2. Add to active layer if it isn't already present
+                            const existingIndex = maskState[layerId].faces.findIndex(f => f.faceIndex === fIdx && f.meshUuid === hit.object.uuid);
                             if (existingIndex === -1) {
                                 let a, b, c;
                                 if (index) {
@@ -783,8 +1226,8 @@ app.registerExtension({
                                 faceDataArray.push({ meshUuid: hit.object.uuid, faceIndex: fIdx, uvA, uvB, uvC, vA, vB, vC });
                                 hasChanges = true;
                             }
-                        }
-                    });
+                        });
+                    }
 
                     if (faceDataArray.length > 0) {
                         maskState[layerId].faces.push(...faceDataArray);
@@ -792,12 +1235,55 @@ app.registerExtension({
 
                     if (hasChanges) {
                         redrawMasks();
+                        syncData();
                         currentHoverKey = 'none';
                         handleHover(hit);
                     }
                 }
 
+                function redrawStrokes() {
+                    if (typeof drawingCanvas === 'undefined') return;
+                    const dCtx = drawingCanvas.getContext('2d');
+                    dCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+                    Object.values(maskState).forEach(layer => {
+                        if (layer.strokes && layer.strokes.length > 0) {
+                            layer.strokes.forEach(stroke => {
+                                if (stroke.mode !== currentToolMode) return;
+                                
+                                dCtx.lineWidth = stroke.size;
+                                dCtx.lineCap = 'round';
+                                dCtx.lineJoin = 'round';
+
+                                if (stroke.mode === 'SKETCH') {
+                                    dCtx.strokeStyle = '#ffffff';
+                                    dCtx.shadowBlur = 0;
+                                } else if (stroke.mode === 'PATCH') {
+                                    dCtx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                                    dCtx.shadowColor = '#ffffff';
+                                    dCtx.shadowBlur = 10;
+                                }
+
+                                const pts = stroke.points;
+                                if (pts.length > 1) {
+                                    dCtx.beginPath();
+                                    dCtx.moveTo(pts[0][0], pts[0][1]);
+                                    for (let i = 1; i < pts.length; i++) {
+                                        dCtx.lineTo(pts[i][0], pts[i][1]);
+                                    }
+                                    dCtx.stroke();
+                                } else if (pts.length === 1) {
+                                    dCtx.beginPath();
+                                    dCtx.arc(pts[0][0], pts[0][1], stroke.size / 2, 0, Math.PI * 2);
+                                    dCtx.fillStyle = dCtx.strokeStyle;
+                                    dCtx.fill();
+                                }
+                            });
+                        }
+                    });
+                }
+
                 function redrawMasks() {
+                    if (isLoadingProject) return;
                     const w = canvas2d.width;
                     const h = canvas2d.height;
 
@@ -846,10 +1332,7 @@ app.registerExtension({
                     };
 
                     drawOnCtx(canvas2d, false);
-                    // hiddenCanvas is now updated during syncData() per layer, 
-                    // but we can leave the overall hiddenCanvas draw here or remove it. 
-                    // Let's omit drawOnCtx(hiddenCanvas, true) because syncData does it.
-
+                    redrawStrokes();
 
                     if (recordedHighlightMesh) {
                         scene.remove(recordedHighlightMesh);
@@ -896,6 +1379,7 @@ app.registerExtension({
                 let hoverInputRow = null;
 
                 function handleHover(hit) {
+                    if (currentToolMode !== 'MASK') hit = null;
                     // Strict defensive null-checking for the raycast intersection results
                     if (!hit || !hit.object || !hit.object.userData || !currentMesh) {
                         if (currentHoverKey === 'none') return;
@@ -955,49 +1439,64 @@ app.registerExtension({
                     if (existingStateId) {
                         highlightColor = 'rgba(0, 170, 255, 0.7)';
                         highlightColorHex = 0x00aaff;
-                        facesToProcess = maskState[existingStateId].faces.map(f => f.faceIndex);
-
                         hoverInputRow = maskState[existingStateId].inputRow;
                         hoverInputRow.style.background = 'rgba(0,170,255,0.4)';
                     } else if (isIslandMode) {
                         facesToProcess = getUVIslandFaces(hit.object, hitFaceIndex);
                     }
 
-                    const uvAttr = hit.object.geometry.attributes.uv;
-                    const posAttr = hit.object.geometry.attributes.position;
-                    const index = hit.object.geometry.index;
-
-                    const vertices = new Float32Array(facesToProcess.length * 9);
-
+                    const vertices = new Float32Array((existingStateId ? maskState[existingStateId].faces.length : facesToProcess.length) * 9);
                     ctx.fillStyle = highlightColor;
 
-                    facesToProcess.forEach((fIdx, i) => {
-                        let a, b, c;
-                        if (index) {
-                            a = index.getX(fIdx * 3); b = index.getX(fIdx * 3 + 1); c = index.getX(fIdx * 3 + 2);
-                        } else {
-                            a = fIdx * 3; b = fIdx * 3 + 1; c = fIdx * 3 + 2;
-                        }
+                    if (existingStateId) {
+                        // BUG FIX: Skip recalculation! Draw the exact cached multi-mesh coordinates.
+                        maskState[existingStateId].faces.forEach((f, i) => {
+                            ctx.beginPath();
+                            ctx.moveTo(f.uvA.x * highlightCanvas2d.width, (1 - f.uvA.y) * highlightCanvas2d.height);
+                            ctx.lineTo(f.uvB.x * highlightCanvas2d.width, (1 - f.uvB.y) * highlightCanvas2d.height);
+                            ctx.lineTo(f.uvC.x * highlightCanvas2d.width, (1 - f.uvC.y) * highlightCanvas2d.height);
+                            ctx.closePath();
+                            ctx.fill();
 
-                        const uvA = { x: uvAttr.getX(a), y: uvAttr.getY(a) };
-                        const uvB = { x: uvAttr.getX(b), y: uvAttr.getY(b) };
-                        const uvC = { x: uvAttr.getX(c), y: uvAttr.getY(c) };
+                            vertices[i * 9 + 0] = f.vA.x; vertices[i * 9 + 1] = f.vA.y; vertices[i * 9 + 2] = f.vA.z;
+                            vertices[i * 9 + 3] = f.vB.x; vertices[i * 9 + 4] = f.vB.y; vertices[i * 9 + 5] = f.vB.z;
+                            vertices[i * 9 + 6] = f.vC.x; vertices[i * 9 + 7] = f.vC.y; vertices[i * 9 + 8] = f.vC.z;
+                        });
+                    } else {
+                        // LIVE RENDER: Calculate fresh coordinates for new unselected islands
+                        const uvAttr = hit.object.geometry.attributes.uv;
+                        const posAttr = hit.object.geometry.attributes.position;
+                        const index = hit.object.geometry.index;
 
-                        ctx.beginPath();
-                        ctx.moveTo(uvA.x * highlightCanvas2d.width, (1 - uvA.y) * highlightCanvas2d.height);
-                        ctx.lineTo(uvB.x * highlightCanvas2d.width, (1 - uvB.y) * highlightCanvas2d.height);
-                        ctx.lineTo(uvC.x * highlightCanvas2d.width, (1 - uvC.y) * highlightCanvas2d.height);
-                        ctx.closePath();
-                        ctx.fill();
+                        facesToProcess.forEach((fIdx, i) => {
+                            let a, b, c;
+                            if (index) {
+                                a = index.getX(fIdx * 3); b = index.getX(fIdx * 3 + 1); c = index.getX(fIdx * 3 + 2);
+                            } else {
+                                a = fIdx * 3; b = fIdx * 3 + 1; c = fIdx * 3 + 2;
+                            }
 
-                        const vA = new THREE.Vector3(posAttr.getX(a), posAttr.getY(a), posAttr.getZ(a)).applyMatrix4(hit.object.matrixWorld);
-                        const vB = new THREE.Vector3(posAttr.getX(b), posAttr.getY(b), posAttr.getZ(b)).applyMatrix4(hit.object.matrixWorld);
-                        const vC = new THREE.Vector3(posAttr.getX(c), posAttr.getY(c), posAttr.getZ(c)).applyMatrix4(hit.object.matrixWorld);
+                            const uvA = { x: uvAttr.getX(a), y: uvAttr.getY(a) };
+                            const uvB = { x: uvAttr.getX(b), y: uvAttr.getY(b) };
+                            const uvC = { x: uvAttr.getX(c), y: uvAttr.getY(c) };
 
-                        vertices[i * 9 + 0] = vA.x; vertices[i * 9 + 1] = vA.y; vertices[i * 9 + 2] = vA.z;
-                        vertices[i * 9 + 3] = vB.x; vertices[i * 9 + 4] = vB.y; vertices[i * 9 + 5] = vB.z;
-                        vertices[i * 9 + 6] = vC.x; vertices[i * 9 + 7] = vC.y; vertices[i * 9 + 8] = vC.z;
-                    });
+                            ctx.beginPath();
+                            ctx.moveTo(uvA.x * highlightCanvas2d.width, (1 - uvA.y) * highlightCanvas2d.height);
+                            ctx.lineTo(uvB.x * highlightCanvas2d.width, (1 - uvB.y) * highlightCanvas2d.height);
+                            ctx.lineTo(uvC.x * highlightCanvas2d.width, (1 - uvC.y) * highlightCanvas2d.height);
+                            ctx.closePath();
+                            ctx.fill();
+
+                            const vA = new THREE.Vector3(posAttr.getX(a), posAttr.getY(a), posAttr.getZ(a)).applyMatrix4(hit.object.matrixWorld);
+                            const vB = new THREE.Vector3(posAttr.getX(b), posAttr.getY(b), posAttr.getZ(b)).applyMatrix4(hit.object.matrixWorld);
+                            const vC = new THREE.Vector3(posAttr.getX(c), posAttr.getY(c), posAttr.getZ(c)).applyMatrix4(hit.object.matrixWorld);
+
+                            vertices[i * 9 + 0] = vA.x; vertices[i * 9 + 1] = vA.y; vertices[i * 9 + 2] = vA.z;
+                            vertices[i * 9 + 3] = vB.x; vertices[i * 9 + 4] = vB.y; vertices[i * 9 + 5] = vB.z;
+                            vertices[i * 9 + 6] = vC.x; vertices[i * 9 + 7] = vC.y; vertices[i * 9 + 8] = vC.z;
+                        });
+                    }
+                    
 
                     const geom = new THREE.BufferGeometry();
                     geom.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
@@ -1138,7 +1637,7 @@ app.registerExtension({
                     row.appendChild(input);
                     promptStack.appendChild(row);
 
-                    maskState[stateId] = { id, prompt: '', faces: [], inputRow: row };
+                    maskState[stateId] = { id, prompt: '', faces: [], strokes: [], inputRow: row };
                     activeLayerId = stateId;
                     radioBtn.checked = true;
                     updateLayerUI();
@@ -1200,6 +1699,9 @@ app.registerExtension({
                                 layerCount = 0;
                                 activeLayerId = null;
 
+                                // CRITICAL FIX: Lock drawing and syncing while hydrating the saved state
+                                isLoadingProject = true; 
+
                                 data.layers.forEach(l => {
                                     createNewLayer();
                                     const layerId = activeLayerId;
@@ -1214,22 +1716,46 @@ app.registerExtension({
                                     }
 
                                     if (l.faces) {
-                                        layerObj.faces = l.faces;
-                                        layerObj.faces.forEach(f => {
-                                            if (f.vA) f.vA = new THREE.Vector3(f.vA.x, f.vA.y, f.vA.z);
-                                            if (f.vB) f.vB = new THREE.Vector3(f.vB.x, f.vB.y, f.vB.z);
-                                            if (f.vC) f.vC = new THREE.Vector3(f.vC.x, f.vC.y, f.vC.z);
-                                        });
+                                        if (l.faces.length > 0 && l.faces[0].meshUuid) {
+                                            // Old backward compatible format
+                                            layerObj.faces = l.faces;
+                                            layerObj.faces.forEach(f => {
+                                                if (f.vA) f.vA = new THREE.Vector3(f.vA.x, f.vA.y, f.vA.z);
+                                                if (f.vB) f.vB = new THREE.Vector3(f.vB.x, f.vB.y, f.vB.z);
+                                                if (f.vC) f.vC = new THREE.Vector3(f.vC.x, f.vC.y, f.vC.z);
+                                            });
+                                        } else {
+                                            // New compressed format
+                                            layerObj.pendingFaceIndices = decompressIndices(l.faces || []);
+                                            layerObj.faces = []; // Clear to prevent crashes before mesh load
+                                       }
                                     }
+                                    
+                                    layerObj.strokes = l.strokes || [];
+                                    // Hydrate the saved images so they survive an F5 refresh
+                                    layerObj.savedMask = l.mask || "";
+                                    layerObj.savedSketch = l.sketch || "";
+                                    layerObj.savedPatch = l.patch || "";
                                 });
 
                                 if (data.cavity) {
                                     currentBakedCavity = data.cavity;
                                 }
 
+                                // CRITICAL FIX: Unlock the UI, safely reconstruct, and run a single unified sync
+                                isLoadingProject = false;
+                                
+                                if (currentMesh) {
+                                    reconstructLayerObjects(currentMesh);
+                                }
+                                
                                 redrawMasks();
+                                syncData();
                             }
-                        } catch(e) {}
+                        } catch(e) {
+                            // Ensure the UI unlocks even if JSON parsing fails
+                            isLoadingProject = false;
+                        }
                     }
                 };
 
@@ -1333,14 +1859,77 @@ app.registerExtension({
 
                 // Add click and hover listeners to the UV canvas
                 canvas2d.addEventListener('click', (e) => {
+                    if (currentToolMode === 'SKETCH' || currentToolMode === 'PATCH') return;
                     const hit = getHitFace2D(e.clientX, e.clientY);
                     if (hit) {
                         handleFaceClick(hit);
                     }
                 });
 
+                let isDrawing = false;
+                let currentStroke = null;
+
+                // Helper: convert mouse event to internal 1024x1024 canvas coords,
+                // accounting for CSS transforms (LiteGraph zoom) AND objectFit:contain letterboxing.
+                function getCanvasDrawCoords(e) {
+                    const rect = canvas2d.getBoundingClientRect();
+                    const canvasAspect = canvas2d.width / canvas2d.height; // 1.0 for 1024x1024
+                    const elemAspect = rect.width / rect.height;
+                    let renderW, renderH, padLeft, padTop;
+                    if (elemAspect > canvasAspect) {
+                        renderH = rect.height;
+                        renderW = rect.height * canvasAspect;
+                        padLeft = (rect.width - renderW) / 2;
+                        padTop = 0;
+                    } else {
+                        renderW = rect.width;
+                        renderH = rect.width / canvasAspect;
+                        padLeft = 0;
+                        padTop = (rect.height - renderH) / 2;
+                    }
+                    const x = ((e.clientX - rect.left - padLeft) / renderW) * canvas2d.width;
+                    const y = ((e.clientY - rect.top - padTop) / renderH) * canvas2d.height;
+                    return { x, y, renderW, renderH };
+                }
+
+                canvas2d.addEventListener('mousedown', (e) => {
+                    if (currentToolMode !== 'SKETCH' && currentToolMode !== 'PATCH') return;
+                    if (!activeLayerId || !maskState[activeLayerId]) return;
+
+                    isDrawing = true;
+                    const { x: canvasX, y: canvasY } = getCanvasDrawCoords(e);
+
+                    if (!maskState[activeLayerId].strokes) maskState[activeLayerId].strokes = [];
+                    currentStroke = { mode: currentToolMode, size: currentBrushSize, points: [[canvasX, canvasY]] };
+                    maskState[activeLayerId].strokes.push(currentStroke);
+                    
+                    redrawStrokes();
+                });
+
                 let lastCanvasMoveTime = 0;
                 canvas2d.addEventListener('mousemove', (e) => {
+                    // Update dynamic brush cursor
+                    if (currentToolMode === 'SKETCH' || currentToolMode === 'PATCH') {
+                        const { renderW } = getCanvasDrawCoords(e);
+                        const visualBrushSize = currentBrushSize * (renderW / canvas2d.width);
+                        brushCursor.style.display = 'block';
+                        brushCursor.style.left = e.clientX + 'px';
+                        brushCursor.style.top = e.clientY + 'px';
+                        brushCursor.style.width = visualBrushSize + 'px';
+                        brushCursor.style.height = visualBrushSize + 'px';
+                    } else {
+                        brushCursor.style.display = 'none';
+                    }
+
+                    if (isDrawing && currentStroke) {
+                        const { x: canvasX, y: canvasY } = getCanvasDrawCoords(e);
+                        currentStroke.points.push([canvasX, canvasY]);
+
+                        redrawStrokes();
+                        return;
+                    }
+
+                    if (currentToolMode !== 'MASK') return;
                     if (isDragging) return;
                     
                     const now = Date.now();
@@ -1351,7 +1940,23 @@ app.registerExtension({
                     handleHover(hit);
                 });
 
-                canvas2d.addEventListener('mouseleave', () => handleHover(null));
+                canvas2d.addEventListener('mouseup', () => {
+                    if (isDrawing) {
+                        isDrawing = false;
+                        currentStroke = null;
+                        syncData();
+                    }
+                });
+
+                canvas2d.addEventListener('mouseleave', () => {
+                    if (typeof brushCursor !== 'undefined') brushCursor.style.display = 'none';
+                    if (isDrawing) {
+                        isDrawing = false;
+                        currentStroke = null;
+                        syncData();
+                    }
+                    if (currentToolMode === 'MASK') handleHover(null);
+                });
 
                 // Texture Hot-Reload Listener
                 const onNodeExecuted = (e) => {
@@ -1452,8 +2057,8 @@ app.registerExtension({
                 // Define precise margins to clear the ports
                 const leftMargin = 15;
                 const rightMargin = 15;
-                // Push the UI down 80px to clear the "image" input and the 3 output labels
-                const topMargin = 80;
+                // Push the UI down 140px to clear the "image" input and output labels
+                const topMargin = 140;
                 const bottomMargin = 10;
 
                 const finalX = screenX + leftMargin * scale;
