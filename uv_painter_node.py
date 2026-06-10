@@ -16,8 +16,8 @@ class UVPainterNode:
             }
         }
 
-    RETURN_TYPES = ("MASK", "STRING", "IMAGE", "IMAGE")
-    RETURN_NAMES = ("MASK_BATCH", "PROMPT_LIST", "CAVITY_MAP", "NORMAL_MAP")
+    RETURN_TYPES = ("MASK", "STRING", "IMAGE", "IMAGE", "IMAGE", "IMAGE")
+    RETURN_NAMES = ("MASK_BATCH", "PROMPT_LIST", "CAVITY_MAP", "NORMAL_MAP", "CANNY_SKETCH", "INPAINT_PATCH")
     FUNCTION = "process_uv_data"
     CATEGORY = "Yedp/Texture" 
 
