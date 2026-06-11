@@ -151,8 +151,37 @@ app.registerExtension({
                 faceLabel.appendChild(faceRadio);
                 faceLabel.appendChild(document.createTextNode(" Face Mode"));
 
+                const symmetryLabel = document.createElement("label");
+                symmetryLabel.style.cursor = "pointer";
+                symmetryLabel.style.marginLeft = "15px";
+                symmetryLabel.style.display = "flex";
+                symmetryLabel.style.alignItems = "center";
+                symmetryLabel.style.gap = "5px";
+                
+                const symmetryCheckbox = document.createElement("input");
+                symmetryCheckbox.type = "checkbox";
+                
+                const symmetrySelect = document.createElement("select");
+                symmetrySelect.style.background = "#333";
+                symmetrySelect.style.color = "white";
+                symmetrySelect.style.border = "1px solid #666";
+                symmetrySelect.style.borderRadius = "3px";
+                symmetrySelect.style.padding = "2px 5px";
+                
+                ['X', 'Y', 'Z'].forEach(axis => {
+                    const opt = document.createElement("option");
+                    opt.value = axis;
+                    opt.innerText = axis;
+                    symmetrySelect.appendChild(opt);
+                });
+                
+                symmetryLabel.appendChild(symmetryCheckbox);
+                symmetryLabel.appendChild(document.createTextNode("Symmetry"));
+                symmetryLabel.appendChild(symmetrySelect);
+
                 toolbar.appendChild(islandLabel);
                 toolbar.appendChild(faceLabel);
+                toolbar.appendChild(symmetryLabel);
                 leftPane.appendChild(toolbar);
 
                 // Right Pane (2D Canvas)
@@ -199,6 +228,105 @@ app.registerExtension({
                 drawingCanvas.style.left = "0";
                 drawingCanvas.style.pointerEvents = "none";
                 rightPane.appendChild(drawingCanvas);
+
+                // Brush UI Panel
+                const brushUI = document.createElement("div");
+                brushUI.style.position = "absolute";
+                brushUI.style.top = "10px";
+                brushUI.style.left = "10px";
+                brushUI.style.background = "rgba(0, 0, 0, 0.7)";
+                brushUI.style.padding = "10px";
+                brushUI.style.borderRadius = "5px";
+                brushUI.style.display = "none";
+                brushUI.style.flexDirection = "column";
+                brushUI.style.gap = "10px";
+                brushUI.style.zIndex = "100";
+                brushUI.style.color = "white";
+                brushUI.style.fontFamily = "sans-serif";
+                brushUI.style.fontSize = "12px";
+
+                const brushSizeWrapper = document.createElement("div");
+                brushSizeWrapper.style.display = "flex";
+                brushSizeWrapper.style.alignItems = "center";
+                brushSizeWrapper.style.gap = "10px";
+
+                const brushSizeLabel = document.createElement("label");
+                brushSizeLabel.innerText = "Size: 5";
+
+                const brushSizeSlider = document.createElement("input");
+                brushSizeSlider.type = "range";
+                brushSizeSlider.min = "1";
+                brushSizeSlider.max = "50";
+                brushSizeSlider.value = "5";
+
+                brushSizeSlider.addEventListener("input", (e) => {
+                    currentBrushSize = parseInt(e.target.value, 10);
+                    brushSizeLabel.innerText = `Size: ${currentBrushSize}`;
+                });
+
+                brushSizeWrapper.appendChild(brushSizeLabel);
+                brushSizeWrapper.appendChild(brushSizeSlider);
+
+                const brushToolsWrapper = document.createElement("div");
+                brushToolsWrapper.style.display = "flex";
+                brushToolsWrapper.style.gap = "5px";
+
+                const paintBtn = document.createElement("button");
+                paintBtn.innerHTML = "🖌️ Brush";
+                paintBtn.style.flex = "1";
+                paintBtn.style.padding = "5px";
+                paintBtn.style.background = "#2196F3"; // Active by default
+                paintBtn.style.color = "white";
+                paintBtn.style.border = "1px solid #666";
+                paintBtn.style.borderRadius = "4px";
+                paintBtn.style.cursor = "pointer";
+
+                const eraserBtn = document.createElement("button");
+                eraserBtn.innerHTML = "🧽 Eraser";
+                eraserBtn.style.flex = "1";
+                eraserBtn.style.padding = "5px";
+                eraserBtn.style.background = "#333";
+                eraserBtn.style.color = "white";
+                eraserBtn.style.border = "1px solid #666";
+                eraserBtn.style.borderRadius = "4px";
+                eraserBtn.style.cursor = "pointer";
+
+                paintBtn.addEventListener("click", () => {
+                    isEraserMode = false;
+                    paintBtn.style.background = "#2196F3";
+                    eraserBtn.style.background = "#333";
+                });
+
+                eraserBtn.addEventListener("click", () => {
+                    isEraserMode = true;
+                    eraserBtn.style.background = "#f44336";
+                    paintBtn.style.background = "#333";
+                });
+
+                const clearBtn = document.createElement("button");
+                clearBtn.innerHTML = "🗑️ Clear";
+                clearBtn.style.padding = "5px 10px";
+                clearBtn.style.background = "#f44336";
+                clearBtn.style.color = "white";
+                clearBtn.style.border = "1px solid #666";
+                clearBtn.style.borderRadius = "4px";
+                clearBtn.style.cursor = "pointer";
+                clearBtn.style.fontWeight = "bold";
+
+                clearBtn.addEventListener("click", () => {
+                    if (activeLayerId && maskState[activeLayerId] && maskState[activeLayerId].strokes) {
+                        maskState[activeLayerId].strokes = maskState[activeLayerId].strokes.filter(s => s.mode !== currentToolMode);
+                        if (typeof redrawStrokes === 'function') redrawStrokes();
+                    }
+                });
+
+                brushToolsWrapper.appendChild(paintBtn);
+                brushToolsWrapper.appendChild(eraserBtn);
+                brushToolsWrapper.appendChild(clearBtn);
+
+                brushUI.appendChild(brushSizeWrapper);
+                brushUI.appendChild(brushToolsWrapper);
+                rightPane.appendChild(brushUI);
 
                 // Brush Cursor — appended to document.body so position:fixed works
                 const brushCursor = document.createElement("div");
@@ -311,6 +439,7 @@ app.registerExtension({
 
                 let currentToolMode = 'MASK';
                 let currentBrushSize = 5;
+                let isEraserMode = false;
 
                 const toolModeContainer = document.createElement('div');
                 toolModeContainer.style.display = 'flex';
@@ -345,10 +474,12 @@ app.registerExtension({
                         if (currentToolMode === 'SKETCH' || currentToolMode === 'PATCH') {
                             drawingCanvas.style.cursor = 'none';
                             canvas2d.style.cursor = 'none';
+                            brushUI.style.display = 'flex';
                         } else {
                             drawingCanvas.style.cursor = 'default';
                             canvas2d.style.cursor = 'default';
                             if (typeof brushCursor !== 'undefined') brushCursor.style.display = 'none';
+                            brushUI.style.display = 'none';
                         }
                         
                         // Clear any active selections/highlights when switching modes
@@ -738,8 +869,12 @@ app.registerExtension({
                         let sketchBase64 = layer.savedSketch || "";
                         let patchBase64 = layer.savedPatch || "";
 
-                        // Only attempt to redraw if we have the 3D model loaded OR we have active brush strokes
-                        if (isObjLoaded || (layer.strokes && layer.strokes.length > 0)) {
+                        // If not visible, return an empty/black layer to preserve prompt indexing
+                        if (layer.isVisible === false) {
+                            maskBase64 = "";
+                            sketchBase64 = "";
+                            patchBase64 = "";
+                        } else if (isObjLoaded || (layer.strokes && layer.strokes.length > 0)) {
                             ctx.clearRect(0, 0, w, h);
                             
                             // ControlNet and Inpaint maps require a pure black background
@@ -747,6 +882,10 @@ app.registerExtension({
                             sketchCtx.fillRect(0, 0, w, h);
                             patchCtx.fillStyle = '#000000';
                             patchCtx.fillRect(0, 0, w, h);
+
+                            ctx.globalAlpha = layer.opacity !== undefined ? layer.opacity : 1.0;
+                            sketchCtx.globalAlpha = layer.opacity !== undefined ? layer.opacity : 1.0;
+                            patchCtx.globalAlpha = layer.opacity !== undefined ? layer.opacity : 1.0;
 
                             // 1. Draw Geometry Masks (Blue/Green Polygons)
                             ctx.fillStyle = '#ffffff';
@@ -776,13 +915,21 @@ app.registerExtension({
                                     activeCtx.lineWidth = stroke.size;
                                     activeCtx.lineCap = 'round';
                                     activeCtx.lineJoin = 'round';
-                                    activeCtx.strokeStyle = '#ffffff'; // Both Canny and Inpaint use white strokes
                                     
-                                    if (stroke.mode === 'PATCH') {
-                                        activeCtx.shadowColor = '#ffffff';
-                                        activeCtx.shadowBlur = 10; // Soft edge for inpainting
+                                    if (stroke.isEraser) {
+                                        activeCtx.globalCompositeOperation = 'destination-out';
+                                        activeCtx.shadowBlur = 0;
+                                        activeCtx.strokeStyle = 'rgba(0,0,0,1)';
                                     } else {
-                                        activeCtx.shadowBlur = 0; // Hard edge for Canny
+                                        activeCtx.globalCompositeOperation = 'source-over';
+                                        activeCtx.strokeStyle = '#ffffff'; // Both Canny and Inpaint use white strokes
+                                        
+                                        if (stroke.mode === 'PATCH') {
+                                            activeCtx.shadowColor = '#ffffff';
+                                            activeCtx.shadowBlur = 10; // Soft edge for inpainting
+                                        } else {
+                                            activeCtx.shadowBlur = 0; // Hard edge for Canny
+                                        }
                                     }
 
                                     const pts = stroke.points;
@@ -806,6 +953,10 @@ app.registerExtension({
                                 patchBase64 = patchCanvas.toDataURL("image/png");
                                 layer.savedPatch = patchBase64;
                             }
+                            
+                            ctx.globalAlpha = 1.0;
+                            sketchCtx.globalAlpha = 1.0;
+                            patchCtx.globalAlpha = 1.0;
                         }
 
                         const rawIndices = layer.pendingFaceIndices || (layer.faces ? layer.faces.map(f => f.faceIndex) : []);
@@ -1167,15 +1318,69 @@ app.registerExtension({
                     }
                     const layerId = activeLayerId;
 
-                    let facesToProcess = [startFaceIndex];
-                    if (isIslandMode) {
-                        if (!hit.object.userData.faceToIslandId) return;
-                        facesToProcess = getUVIslandFaces(hit.object, startFaceIndex);
-                    }
-
                     const uvAttr = hit.object.geometry.attributes.uv;
                     const posAttr = hit.object.geometry.attributes.position;
                     const index = hit.object.geometry.index;
+
+                    let facesToProcess = [startFaceIndex];
+                    
+                    if (symmetryCheckbox.checked) {
+                        let a, b, c;
+                        if (index) {
+                            a = index.getX(startFaceIndex * 3); b = index.getX(startFaceIndex * 3 + 1); c = index.getX(startFaceIndex * 3 + 2);
+                        } else {
+                            a = startFaceIndex * 3; b = startFaceIndex * 3 + 1; c = startFaceIndex * 3 + 2;
+                        }
+                        
+                        const cx = (posAttr.getX(a) + posAttr.getX(b) + posAttr.getX(c)) / 3;
+                        const cy = (posAttr.getY(a) + posAttr.getY(b) + posAttr.getY(c)) / 3;
+                        const cz = (posAttr.getZ(a) + posAttr.getZ(b) + posAttr.getZ(c)) / 3;
+                        
+                        const centerLocal = new THREE.Vector3(cx, cy, cz);
+                        const axis = symmetrySelect.value;
+                        if (axis === 'X') centerLocal.x *= -1;
+                        if (axis === 'Y') centerLocal.y *= -1;
+                        if (axis === 'Z') centerLocal.z *= -1;
+                        
+                        const mirroredCenterWorld = centerLocal.applyMatrix4(hit.object.matrixWorld);
+                        
+                        let closestFaceIndex = -1;
+                        let minDistanceSq = Infinity;
+                        const faceCount = index ? index.count / 3 : posAttr.count / 3;
+                        const vTemp = new THREE.Vector3();
+                        
+                        for (let i = 0; i < faceCount; i++) {
+                            let ma, mb, mc;
+                            if (index) {
+                                ma = index.getX(i * 3); mb = index.getX(i * 3 + 1); mc = index.getX(i * 3 + 2);
+                            } else {
+                                ma = i * 3; mb = i * 3 + 1; mc = i * 3 + 2;
+                            }
+                            const mcx = (posAttr.getX(ma) + posAttr.getX(mb) + posAttr.getX(mc)) / 3;
+                            const mcy = (posAttr.getY(ma) + posAttr.getY(mb) + posAttr.getY(mc)) / 3;
+                            const mcz = (posAttr.getZ(ma) + posAttr.getZ(mb) + posAttr.getZ(mc)) / 3;
+                            
+                            vTemp.set(mcx, mcy, mcz).applyMatrix4(hit.object.matrixWorld);
+                            const distSq = vTemp.distanceToSquared(mirroredCenterWorld);
+                            if (distSq < minDistanceSq) {
+                                minDistanceSq = distSq;
+                                closestFaceIndex = i;
+                            }
+                        }
+                        
+                        if (closestFaceIndex !== -1 && Math.sqrt(minDistanceSq) < 0.05) {
+                            facesToProcess.push(closestFaceIndex);
+                        }
+                    }
+
+                    if (isIslandMode) {
+                        if (!hit.object.userData.faceToIslandId) return;
+                        const finalFaces = new Set();
+                        facesToProcess.forEach(fIdx => {
+                            getUVIslandFaces(hit.object, fIdx).forEach(fi => finalFaces.add(fi));
+                        });
+                        facesToProcess = Array.from(finalFaces);
+                    }
 
                     const faceDataArray = [];
                     let hasChanges = false;
@@ -1246,6 +1451,8 @@ app.registerExtension({
                     const dCtx = drawingCanvas.getContext('2d');
                     dCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
                     Object.values(maskState).forEach(layer => {
+                        if (layer.isVisible === false) return;
+                        dCtx.globalAlpha = layer.opacity !== undefined ? layer.opacity : 1.0;
                         if (layer.strokes && layer.strokes.length > 0) {
                             layer.strokes.forEach(stroke => {
                                 if (stroke.mode !== currentToolMode) return;
@@ -1254,13 +1461,20 @@ app.registerExtension({
                                 dCtx.lineCap = 'round';
                                 dCtx.lineJoin = 'round';
 
-                                if (stroke.mode === 'SKETCH') {
-                                    dCtx.strokeStyle = '#ffffff';
+                                if (stroke.isEraser) {
+                                    dCtx.globalCompositeOperation = 'destination-out';
                                     dCtx.shadowBlur = 0;
-                                } else if (stroke.mode === 'PATCH') {
-                                    dCtx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-                                    dCtx.shadowColor = '#ffffff';
-                                    dCtx.shadowBlur = 10;
+                                    dCtx.strokeStyle = 'rgba(0,0,0,1)';
+                                } else {
+                                    dCtx.globalCompositeOperation = 'source-over';
+                                    if (stroke.mode === 'SKETCH') {
+                                        dCtx.strokeStyle = '#ffffff';
+                                        dCtx.shadowBlur = 0;
+                                    } else if (stroke.mode === 'PATCH') {
+                                        dCtx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                                        dCtx.shadowColor = '#ffffff';
+                                        dCtx.shadowBlur = 10;
+                                    }
                                 }
 
                                 const pts = stroke.points;
@@ -1279,6 +1493,7 @@ app.registerExtension({
                                 }
                             });
                         }
+                        dCtx.globalAlpha = 1.0;
                     });
                 }
 
@@ -1307,6 +1522,8 @@ app.registerExtension({
                         const showMasks = typeof toggleMasks !== 'undefined' ? toggleMasks.checked : true;
 
                         Object.entries(maskState).forEach(([layerId, layer]) => {
+                            if (layer.isVisible === false) return;
+                            ctx.globalAlpha = layer.opacity !== undefined ? layer.opacity : 1.0;
                             const isActive = (layerId === activeLayerId);
                             
                             if (isHidden) {
@@ -1328,6 +1545,7 @@ app.registerExtension({
                                 ctx.fill();
                                 ctx.stroke();
                             });
+                            ctx.globalAlpha = 1.0;
                         });
                     };
 
@@ -1347,6 +1565,7 @@ app.registerExtension({
                         const colors = new Float32Array(totalRecordedFaces * 9);
                         let i = 0;
                         Object.entries(maskState).forEach(([layerId, m]) => {
+                            if (m.isVisible === false) return;
                             const isActive = (layerId === activeLayerId);
                             const r = isActive ? 0.298 : 0.353;
                             const g = isActive ? 0.686 : 0.498;
@@ -1613,8 +1832,48 @@ app.registerExtension({
                         }
                     });
 
+                    const rightHeader = document.createElement('div');
+                    rightHeader.style.display = 'flex';
+                    rightHeader.style.alignItems = 'center';
+                    rightHeader.style.gap = '5px';
+
+                    const eyeIcon = document.createElement('button');
+                    eyeIcon.innerText = '👁️';
+                    eyeIcon.style.background = 'none';
+                    eyeIcon.style.border = 'none';
+                    eyeIcon.style.cursor = 'pointer';
+                    eyeIcon.style.padding = '0';
+                    eyeIcon.title = 'Toggle Visibility';
+                    
+                    const opacitySlider = document.createElement('input');
+                    opacitySlider.type = 'range';
+                    opacitySlider.min = '0';
+                    opacitySlider.max = '1';
+                    opacitySlider.step = '0.05';
+                    opacitySlider.value = '1';
+                    opacitySlider.style.width = '60px';
+                    
+                    eyeIcon.addEventListener('click', () => {
+                        maskState[stateId].isVisible = !maskState[stateId].isVisible;
+                        eyeIcon.style.opacity = maskState[stateId].isVisible ? '1' : '0.3';
+                        syncData();
+                        redrawMasks();
+                        if (typeof redrawStrokes === 'function') redrawStrokes();
+                    });
+                    
+                    opacitySlider.addEventListener('input', (e) => {
+                        maskState[stateId].opacity = parseFloat(e.target.value);
+                        syncData();
+                        redrawMasks();
+                        if (typeof redrawStrokes === 'function') redrawStrokes();
+                    });
+
+                    rightHeader.appendChild(opacitySlider);
+                    rightHeader.appendChild(eyeIcon);
+                    rightHeader.appendChild(delBtn);
+
                     header.appendChild(leftHeader);
-                    header.appendChild(delBtn);
+                    header.appendChild(rightHeader);
 
                     const input = document.createElement('input');
                     input.className = 'prompt-input';
@@ -1637,7 +1896,7 @@ app.registerExtension({
                     row.appendChild(input);
                     promptStack.appendChild(row);
 
-                    maskState[stateId] = { id, prompt: '', faces: [], strokes: [], inputRow: row };
+                    maskState[stateId] = { id, prompt: '', faces: [], strokes: [], inputRow: row, isVisible: true, opacity: 1.0 };
                     activeLayerId = stateId;
                     radioBtn.checked = true;
                     updateLayerUI();
@@ -1900,7 +2159,7 @@ app.registerExtension({
                     const { x: canvasX, y: canvasY } = getCanvasDrawCoords(e);
 
                     if (!maskState[activeLayerId].strokes) maskState[activeLayerId].strokes = [];
-                    currentStroke = { mode: currentToolMode, size: currentBrushSize, points: [[canvasX, canvasY]] };
+                    currentStroke = { mode: currentToolMode, size: currentBrushSize, isEraser: isEraserMode, points: [[canvasX, canvasY]] };
                     maskState[activeLayerId].strokes.push(currentStroke);
                     
                     redrawStrokes();
