@@ -343,8 +343,8 @@ app.registerExtension({
 
                 // Prompt Stack UI overlay (moved to right side panel)
                 const promptStackContainer = document.createElement('div');
-                promptStackContainer.style.width = '250px';
-                promptStackContainer.style.minWidth = '250px';
+                promptStackContainer.style.width = '290px';
+                promptStackContainer.style.minWidth = '290px';
                 promptStackContainer.style.borderLeft = '2px solid #333';
                 promptStackContainer.style.backgroundColor = '#222';
                 promptStackContainer.style.display = 'flex';
