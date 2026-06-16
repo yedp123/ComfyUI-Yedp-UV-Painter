@@ -352,6 +352,118 @@ app.registerExtension({
                 promptStackContainer.style.padding = '10px';
                 promptStackContainer.style.boxSizing = 'border-box';
 
+                const genStackContainer = document.createElement('div');
+                genStackContainer.style.width = '290px';
+                genStackContainer.style.minWidth = '290px';
+                genStackContainer.style.borderLeft = '2px solid #333';
+                genStackContainer.style.backgroundColor = '#222';
+                genStackContainer.style.display = 'none';
+                genStackContainer.style.flexDirection = 'column';
+                genStackContainer.style.padding = '10px';
+                genStackContainer.style.boxSizing = 'border-box';
+                genStackContainer.style.overflowY = 'auto';
+
+                function renderGenerationStack() {
+                    genStackContainer.innerHTML = '';
+                    const header = document.createElement('div');
+                    header.innerText = 'Generation Stack';
+                    header.style.color = '#fff';
+                    header.style.fontWeight = 'bold';
+                    header.style.marginBottom = '10px';
+                    genStackContainer.appendChild(header);
+
+                    generationStack.forEach((entry, index) => {
+                        const row = document.createElement('div');
+                        row.style.display = 'flex';
+                        row.style.alignItems = 'center';
+                        row.style.gap = '5px';
+                        row.style.background = 'rgba(0,0,0,0.7)';
+                        row.style.padding = '8px';
+                        row.style.marginBottom = '5px';
+                        row.style.borderRadius = '4px';
+
+                        const eyeIcon = document.createElement('button');
+                        eyeIcon.innerText = '👁️';
+                        eyeIcon.style.background = 'none';
+                        eyeIcon.style.border = 'none';
+                        eyeIcon.style.cursor = 'pointer';
+                        eyeIcon.style.opacity = entry.isVisible ? '1' : '0.3';
+                        eyeIcon.onclick = () => {
+                            entry.isVisible = !entry.isVisible;
+                            renderGenerationStack();
+                            if (typeof compositeFinalTexture === 'function') compositeFinalTexture();
+                        };
+
+                        const lockIcon = document.createElement('button');
+                        lockIcon.innerText = '🔒';
+                        lockIcon.style.background = 'none';
+                        lockIcon.style.border = 'none';
+                        lockIcon.style.cursor = 'pointer';
+                        lockIcon.style.opacity = entry.isLocked ? '1' : '0.3';
+                        lockIcon.onclick = () => {
+                            entry.isLocked = !entry.isLocked;
+                            renderGenerationStack();
+                        };
+
+                        const titleDiv = document.createElement('div');
+                        titleDiv.style.flex = '1';
+                        titleDiv.style.color = '#fff';
+                        titleDiv.style.fontSize = '12px';
+                        titleDiv.innerHTML = `<strong>${entry.layerName}</strong><br><span style="color:#aaa;font-size:10px">Depends on: ${entry.linkedUvGroupId}</span>`;
+
+                        const delBtn = document.createElement('button');
+                        delBtn.innerText = 'Del';
+                        delBtn.style.fontSize = '10px';
+                        delBtn.style.background = '#d9534f';
+                        delBtn.style.color = '#fff';
+                        delBtn.style.border = 'none';
+                        delBtn.style.borderRadius = '2px';
+                        delBtn.style.cursor = 'pointer';
+                        delBtn.onclick = () => {
+                            generationStack.splice(index, 1);
+                            renderGenerationStack();
+                        };
+
+                        row.appendChild(eyeIcon);
+                        row.appendChild(lockIcon);
+                        row.appendChild(titleDiv);
+                        row.appendChild(delBtn);
+
+                        genStackContainer.appendChild(row);
+                    });
+
+                    // ADD THE EXPORT BUTTON
+                    if (!document.getElementById('export-gen-btn') && generationStack.length > 0) {
+                        const exportBtn = document.createElement('button');
+                        exportBtn.id = 'export-gen-btn';
+                        exportBtn.innerText = '💾 Export Final Texture';
+                        exportBtn.style.marginTop = '15px';
+                        exportBtn.style.padding = '8px';
+                        exportBtn.style.background = '#1976D2';
+                        exportBtn.style.color = '#fff';
+                        exportBtn.style.border = 'none';
+                        exportBtn.style.borderRadius = '4px';
+                        exportBtn.style.cursor = 'pointer';
+                        exportBtn.style.fontWeight = 'bold';
+                        
+                        exportBtn.onclick = async () => {
+                            const textureUrl = await compositeFinalTexture();
+                            if (textureUrl) {
+                                // Just download the file directly from ComfyUI's output folder
+                                const a = document.createElement('a');
+                                a.href = textureUrl;
+                                a.download = 'yedp_generated_texture.png';
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+                            } else {
+                                alert("No visible texture to export!");
+                            }
+                        };
+                        genStackContainer.appendChild(exportBtn);
+                    }
+                }
+
                 const newLayerBtn = document.createElement('button');
                 newLayerBtn.innerText = '+ New Layer';
                 newLayerBtn.style.padding = '8px';
@@ -448,7 +560,7 @@ app.registerExtension({
                 const modes = [
                     { id: 'MASK', label: 'Select (Mask)' },
                     { id: 'SKETCH', label: 'Draw (Canny)' },
-                    { id: 'PATCH', label: 'Heal (Inpaint)' }
+                    { id: 'STACK', label: 'Gen Stack' }
                 ];
 
                 modes.forEach(mode => {
@@ -480,6 +592,16 @@ app.registerExtension({
                             canvas2d.style.cursor = 'default';
                             if (typeof brushCursor !== 'undefined') brushCursor.style.display = 'none';
                             brushUI.style.display = 'none';
+                        }
+                        
+                        // Handle panel visibility
+                        if (currentToolMode === 'STACK') {
+                            promptStackContainer.style.display = 'none';
+                            genStackContainer.style.display = 'flex';
+                            renderGenerationStack();
+                        } else {
+                            genStackContainer.style.display = 'none';
+                            promptStackContainer.style.display = 'flex';
                         }
                         
                         // Clear any active selections/highlights when switching modes
@@ -548,7 +670,8 @@ app.registerExtension({
                     const projectPayload = {
                         version: 1,
                         layers: projectLayers,
-                        cavity: currentBakedCavity
+                        cavity: currentBakedCavity,
+                        generationStack: generationStack
                     };
                     const jsonStr = JSON.stringify(projectPayload, null, 2);
                     const blob = new Blob([jsonStr], { type: 'application/json' });
@@ -675,6 +798,7 @@ app.registerExtension({
                 let layerCount = 0;
                 let activeLayerId = null;
                 const maskState = {};
+                let generationStack = [];
                 let currentMesh = null;
                 let lastGeneratedImage = null;
                 let isLoadingProject = false;
@@ -818,6 +942,7 @@ app.registerExtension({
                 mainArea.appendChild(leftPane);
                 mainArea.appendChild(rightPane);
                 mainArea.appendChild(promptStackContainer);
+                mainArea.appendChild(genStackContainer);
                 this.domContainer.appendChild(topBar);
                 this.domContainer.appendChild(mainArea);
 
@@ -842,7 +967,216 @@ app.registerExtension({
 
                 let currentBakedCavity = null;
 
+                // --- BULLETPROOF ALPHA-COMPOSITED TEXTURE COMPOSITOR ---
+                // Loads all visible generation stack layers, masks each to its UV polygon
+                // region using canvas compositing, and applies the result to the 3D mesh.
+                // IMPORTANT: Defined at onNodeCreated scope so onNodeExecuted can access it.
+                async function compositeFinalTexture() {
+                    if (!currentMesh) return null;
+
+                    const TEX_SIZE = 1024;
+
+                    // ── 1. Collect visible layers (bottom-to-top order) ──
+                    const visibleLayers = generationStack.filter(
+                        entry => entry.isVisible && entry.generatedImage
+                    );
+
+                    // ── 2. If nothing is visible, clear the mesh and 2D preview ──
+                    if (visibleLayers.length === 0) {
+                        lastGeneratedImage = null;
+                        redrawMasks();
+                        currentMesh.traverse((child) => {
+                            if (child.isMesh && child.material) {
+                                if (child.material.map) child.material.map.dispose();
+                                child.material = new THREE.MeshStandardMaterial({
+                                    color: 0xffffff, roughness: 0.5
+                                });
+                                child.material.needsUpdate = true;
+                            }
+                        });
+                        return null;
+                    }
+
+                    // ── Helper: CORS-safe image loader via fetch + Blob + ObjectURL ──
+                    // This completely bypasses CORS taint on the canvas because we
+                    // create a local blob:// URL from the raw bytes. The canvas never
+                    // sees the original cross-origin URL, so getImageData / toDataURL
+                    // will always succeed.
+                    function loadImageSafe(url) {
+                        return new Promise((resolve, reject) => {
+                            // First try the fetch+blob approach (works for same-origin & CORS-enabled)
+                            fetch(url, { credentials: 'same-origin' })
+                                .then(response => {
+                                    if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+                                    return response.blob();
+                                })
+                                .then(blob => {
+                                    const objectUrl = URL.createObjectURL(blob);
+                                    const img = new Image();
+                                    img.onload = () => {
+                                        // Revoke the object URL after the image is fully decoded
+                                        // to prevent memory leaks. The pixel data is now in the
+                                        // Image element's internal bitmap, safe to use on canvas.
+                                        URL.revokeObjectURL(objectUrl);
+                                        resolve(img);
+                                    };
+                                    img.onerror = () => {
+                                        URL.revokeObjectURL(objectUrl);
+                                        reject(new Error(`Image decode failed for blob from ${url}`));
+                                    };
+                                    img.src = objectUrl;
+                                })
+                                .catch(fetchErr => {
+                                    // Fallback: try direct Image load with crossOrigin
+                                    // This handles edge cases where fetch might be blocked
+                                    // but <img> loading still works (e.g., file:// protocol).
+                                    console.warn(`⚠️ fetch failed for "${url}", trying direct Image load:`, fetchErr);
+                                    const img = new Image();
+                                    img.crossOrigin = 'anonymous';
+                                    img.onload = () => resolve(img);
+                                    img.onerror = () => reject(new Error(`All image loading methods failed for ${url}`));
+                                    img.src = url;
+                                });
+                        });
+                    }
+
+                    // ── Helper: Draw UV polygon mask for a given linkedUvGroupId ──
+                    // Renders pure white filled triangles for every face belonging to
+                    // the mask layer that this generation entry is linked to.
+                    function drawUvMask(ctx, layerId, w, h) {
+                        ctx.clearRect(0, 0, w, h);
+                        const layer = maskState[layerId];
+                        if (!layer || !layer.faces || layer.faces.length === 0) {
+                            // No mask data → fill entire canvas white (full coverage)
+                            ctx.fillStyle = '#ffffff';
+                            ctx.fillRect(0, 0, w, h);
+                            return;
+                        }
+                        ctx.fillStyle = '#ffffff';
+                        ctx.strokeStyle = '#ffffff';
+                        ctx.lineWidth = 1;
+                        layer.faces.forEach(f => {
+                            ctx.beginPath();
+                            ctx.moveTo(f.uvA.x * w, (1 - f.uvA.y) * h);
+                            ctx.lineTo(f.uvB.x * w, (1 - f.uvB.y) * h);
+                            ctx.lineTo(f.uvC.x * w, (1 - f.uvC.y) * h);
+                            ctx.closePath();
+                            ctx.fill();
+                            ctx.stroke();
+                        });
+                    }
+
+                    try {
+                        // ── 3. Load all visible layer images in parallel ──
+                        const imagePromises = visibleLayers.map(entry =>
+                            loadImageSafe(entry.generatedImage)
+                                .catch(err => {
+                                    console.error(`❌ Failed to load layer "${entry.layerName}":`, err);
+                                    return null; // Skip broken layers gracefully
+                                })
+                        );
+                        const loadedImages = await Promise.all(imagePromises);
+
+                        // ── 4. Create the master compositing canvas ──
+                        const masterCanvas = document.createElement('canvas');
+                        masterCanvas.width = TEX_SIZE;
+                        masterCanvas.height = TEX_SIZE;
+                        const masterCtx = masterCanvas.getContext('2d');
+                        // Start fully transparent
+                        masterCtx.clearRect(0, 0, TEX_SIZE, TEX_SIZE);
+
+                        // Offscreen canvas for per-layer mask+cut operations
+                        const cutCanvas = document.createElement('canvas');
+                        cutCanvas.width = TEX_SIZE;
+                        cutCanvas.height = TEX_SIZE;
+                        const cutCtx = cutCanvas.getContext('2d');
+
+                        // Dedicated mask canvas — keeps mask rendering isolated
+                        // so clearRect never destroys texture data
+                        const maskCanvas = document.createElement('canvas');
+                        maskCanvas.width = TEX_SIZE;
+                        maskCanvas.height = TEX_SIZE;
+                        const maskCtx = maskCanvas.getContext('2d');
+
+                        // ── 5. Composite each layer bottom-to-top ──
+                        for (let i = 0; i < visibleLayers.length; i++) {
+                            const entry = visibleLayers[i];
+                            const img = loadedImages[i];
+                            if (!img) continue; // Skip layers that failed to load
+
+                            // Step A: Render the UV polygon mask onto its own canvas
+                            drawUvMask(maskCtx, entry.linkedUvGroupId, TEX_SIZE, TEX_SIZE);
+
+                            // Step B: Draw the AI-generated texture onto the cut canvas
+                            cutCtx.globalCompositeOperation = 'source-over';
+                            cutCtx.clearRect(0, 0, TEX_SIZE, TEX_SIZE);
+                            cutCtx.drawImage(img, 0, 0, TEX_SIZE, TEX_SIZE);
+
+                            // Step C: Use 'destination-in' with the mask to cut the texture.
+                            // 'destination-in': keeps EXISTING pixels (the texture) only where
+                            // the NEW drawing (the mask) has alpha > 0. The mask canvas has
+                            // white polygons with alpha=1, so only texture pixels overlapping
+                            // those UV polygons survive. Everything else becomes transparent.
+                            cutCtx.globalCompositeOperation = 'destination-in';
+                            cutCtx.drawImage(maskCanvas, 0, 0);
+
+                            // Step D: Composite the masked cutout onto the master canvas.
+                            // 'source-over' means later layers paint on top of earlier ones,
+                            // which is the correct bottom-to-top stacking behavior.
+                            masterCtx.globalCompositeOperation = 'source-over';
+                            masterCtx.drawImage(cutCanvas, 0, 0);
+                        }
+
+                        // ── 6. Update the 2D Viewport preview ──
+                        // Create an Image from the composited canvas for the 2D view
+                        const previewImg = new Image();
+                        previewImg.onload = () => {
+                            lastGeneratedImage = previewImg;
+                            redrawMasks();
+                        };
+                        previewImg.onerror = () => {
+                            console.error('❌ Failed to create 2D preview from composited canvas');
+                        };
+                        previewImg.src = masterCanvas.toDataURL('image/png');
+
+                        // ── 7. Apply composited texture to the 3D mesh ──
+                        const canvasTexture = new THREE.CanvasTexture(masterCanvas);
+                        canvasTexture.colorSpace = THREE.SRGBColorSpace;
+                        canvasTexture.flipY = true;
+                        // Force GPU upload of the texture data
+                        canvasTexture.needsUpdate = true;
+
+                        currentMesh.traverse((child) => {
+                            if (child.isMesh) {
+                                // Dispose old material and texture to prevent GPU memory leaks
+                                if (child.material) {
+                                    if (child.material.map) child.material.map.dispose();
+                                    child.material.dispose();
+                                }
+                                child.material = new THREE.MeshBasicMaterial({
+                                    map: canvasTexture,
+                                    color: 0xffffff,
+                                    side: THREE.DoubleSide,
+                                    // Enable transparency so masked-out regions show as transparent
+                                    transparent: true,
+                                });
+                                child.material.needsUpdate = true;
+                            }
+                        });
+
+                        console.log(`✅ compositeFinalTexture: composited ${visibleLayers.length} layer(s) successfully`);
+
+                        // Return a data URL for the export button to use
+                        return masterCanvas.toDataURL('image/png');
+
+                    } catch (err) {
+                        console.error('❌ compositeFinalTexture fatal error:', err);
+                        return null;
+                    }
+                }
+
                 const syncData = () => {
+
                     if (!this.painterDataWidget) return;
                     if (isLoadingProject) return;
 
@@ -974,7 +1308,9 @@ app.registerExtension({
 
                     const payload = {
                         layers: layers,
-                        cavity: currentBakedCavity
+                        cavity: currentBakedCavity,
+                        activeLayerId: activeLayerId,
+                        generationStack: generationStack
                     };
 
                     isSyncingData = true;
@@ -1957,9 +2293,16 @@ app.registerExtension({
                                 promptStack.innerHTML = '';
                                 layerCount = 0;
                                 activeLayerId = null;
+                                
+                                // Restore the Generation Stack from F5 refresh
+                                if (data.generationStack) {
+                                    generationStack = data.generationStack;
+                                } else {
+                                    generationStack = [];
+                                }
 
                                 // CRITICAL FIX: Lock drawing and syncing while hydrating the saved state
-                                isLoadingProject = true; 
+                                isLoadingProject = true;
 
                                 data.layers.forEach(l => {
                                     createNewLayer();
@@ -2237,39 +2580,30 @@ app.registerExtension({
                         
                         console.log("🖼️ Texture Found, loading:", textureUrl);
                         
-                        // 2D Canvas Texture Preview
-                        const imgElement = new Image(); 
-                        imgElement.src = textureUrl; 
-                        imgElement.onload = () => { 
-                            lastGeneratedImage = imgElement; 
-                            redrawMasks(); 
-                        };
+                        // Add to Generation Stack
+                        let lName = 'Unknown Layer';
+                        if (activeLayerId && maskState[activeLayerId]) {
+                            const inputElem = maskState[activeLayerId].inputRow.querySelector('input[type="text"]');
+                            if (inputElem) lName = inputElem.value;
+                        }
 
-                        if (currentMesh) {
-                            new THREE.TextureLoader().load(
-                                textureUrl, 
-                                (loadedTexture) => {
-                                    loadedTexture.colorSpace = THREE.SRGBColorSpace; // Ensure correct colors
-                                    currentMesh.traverse((child) => {
-                                        if (child.isMesh && child.material) {
-                                            // Destroy the old material completely
-                                            if (child.material) child.material.dispose();
-                                            // Create a fresh standard material with the loaded texture
-                                            child.material = new THREE.MeshBasicMaterial({
-                                                map: loadedTexture,
-                                                color: 0xffffff,
-                                                side: THREE.DoubleSide
-                                            });
-                                            child.material.needsUpdate = true;
-                                        }
-                                    });
-                                    console.log("✅ Texture mapped successfully!");
-                                },
-                                undefined,
-                                (err) => {
-                                    console.error("❌ TextureLoader Error: failed to load texture from", textureUrl, err);
-                                }
-                            );
+                        generationStack.push({
+                            id: Date.now().toString(),
+                            layerName: lName,
+                            linkedUvGroupId: activeLayerId,
+                            generatedImage: textureUrl,
+                            isVisible: true,
+                            isLocked: false
+                        });
+
+                        // Refresh UI
+                        if (typeof renderGenerationStack === 'function') {
+                            renderGenerationStack();
+                        }
+                        
+                        // Trigger the compositor to build the stack and handle the 2D/3D previews
+                        if (typeof compositeFinalTexture === 'function') {
+                            compositeFinalTexture();
                         }
                     }
                 };
