@@ -12,12 +12,11 @@ class UVPainterNode:
                 "painter_data": ("STRING", {"default": "", "multiline": True}),
             },
             "optional": {
-                "image": ("IMAGE",),
             }
         }
 
-    RETURN_TYPES = ("MASK", "STRING", "IMAGE", "IMAGE", "IMAGE", "IMAGE")
-    RETURN_NAMES = ("MASK_BATCH", "PROMPT_LIST", "CAVITY_MAP", "NORMAL_MAP", "CANNY_SKETCH", "INPAINT_PATCH")
+    RETURN_TYPES = ("MASK", "STRING", "IMAGE", "IMAGE", "IMAGE")
+    RETURN_NAMES = ("MASK_BATCH", "PROMPT_LIST", "CAVITY_MAP", "NORMAL_MAP", "CANNY_SKETCH")
     FUNCTION = "process_uv_data"
     CATEGORY = "Yedp/Texture" 
 
@@ -36,7 +35,6 @@ class UVPainterNode:
         # Default empty tensors
         mask_tensor = torch.zeros((1, height, width), dtype=torch.float32)
         sketch_tensor = torch.zeros((1, height, width, 3), dtype=torch.float32)
-        patch_tensor = torch.zeros((1, height, width, 3), dtype=torch.float32)
         cavity_tensor = torch.zeros((1, height, width, 3), dtype=torch.float32)
         combined_prompts = ""
 
@@ -44,7 +42,6 @@ class UVPainterNode:
         if layers:
             mask_list = []
             sketch_list = []
-            patch_list = []
             prompt_list = []
             
             for layer in layers:
@@ -73,24 +70,13 @@ class UVPainterNode:
                     except Exception as e:
                         print(f"Error decoding sketch: {e}")
 
-                # 3. Decode Patch (RGB for VAE Inpaint)
-                if "patch" in layer and layer["patch"]:
-                    try:
-                        img_data = base64.b64decode(layer["patch"].split(",")[1])
-                        img = Image.open(io.BytesIO(img_data)).convert("RGB")
-                        img = img.resize((width, height))
-                        p_tensor = torch.from_numpy(np.array(img).astype(np.float32) / 255.0).unsqueeze(0)
-                        patch_list.append(p_tensor)
-                    except Exception as e:
-                        print(f"Error decoding patch: {e}")
+
             
             # Batch the lists into multi-dimensional tensors
             if mask_list:
                 mask_tensor = torch.cat(mask_list, dim=0)
             if sketch_list:
                 sketch_tensor = torch.cat(sketch_list, dim=0)
-            if patch_list:
-                patch_tensor = torch.cat(patch_list, dim=0)
             
             if prompt_list:
                 combined_prompts = "\n---\n".join(prompt_list)
@@ -138,8 +124,8 @@ class UVPainterNode:
             except Exception as e:
                 print(f"Error decoding cavity map or generating normal map: {e}")
 
-        # CRITICAL FIX: Return all 6 variables exactly matching RETURN_NAMES order
-        return (mask_tensor, combined_prompts, cavity_tensor, normal_tensor, sketch_tensor, patch_tensor)
+        # CRITICAL FIX: Return all 5 variables exactly matching RETURN_NAMES order
+        return (mask_tensor, combined_prompts, cavity_tensor, normal_tensor, sketch_tensor)
 
 class YedpAutoConditioner:
     @classmethod
