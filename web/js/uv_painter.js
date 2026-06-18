@@ -317,6 +317,9 @@ app.registerExtension({
                     if (activeLayerId && maskState[activeLayerId] && maskState[activeLayerId].strokes) {
                         maskState[activeLayerId].strokes = maskState[activeLayerId].strokes.filter(s => s.mode !== currentToolMode);
                         if (typeof redrawStrokes === 'function') redrawStrokes();
+                        if (currentToolMode === 'SKETCH' && typeof updateLiveCannyPreview === 'function') {
+                            updateLiveCannyPreview();
+                        }
                     }
                 });
 
@@ -609,6 +612,37 @@ app.registerExtension({
                             handleHover(null);
                         }
                         
+                        if (currentToolMode === 'SKETCH') {
+                            if (typeof updateLiveCannyPreview === 'function') updateLiveCannyPreview();
+                            if (currentMesh) {
+                                currentMesh.traverse((child) => {
+                                    if (child.isMesh) {
+                                        if (!child.userData.originalMat) {
+                                            child.userData.originalMat = child.material;
+                                        }
+                                        child.material = new THREE.MeshBasicMaterial({ map: liveCannyTexture });
+                                        if (child.userData.wireframeHelper) {
+                                            child.userData.wireframeHelper.visible = false;
+                                        }
+                                    }
+                                });
+                            }
+                        } else {
+                            if (currentMesh) {
+                                currentMesh.traverse((child) => {
+                                    if (child.isMesh) {
+                                        if (child.userData.originalMat) {
+                                            child.material = child.userData.originalMat;
+                                            child.userData.originalMat = null;
+                                        }
+                                        if (child.userData.wireframeHelper) {
+                                            child.userData.wireframeHelper.visible = toggleWireframe.checked;
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                        
                         // Redraw strokes to toggle visibility
                         if (typeof redrawStrokes === 'function') redrawStrokes();
                     });
@@ -663,8 +697,7 @@ app.registerExtension({
                             faces: layer.faces, 
                             strokes: layer.strokes || [],
                             mask: layer.savedMask || "",
-                            sketch: layer.savedSketch || "",
-                            patch: layer.savedPatch || ""
+                            sketch: layer.savedSketch || ""
                         });
                     });
                     const projectPayload = {
@@ -742,7 +775,6 @@ app.registerExtension({
                                     layerObj.strokes = l.strokes || [];
                                     layerObj.savedMask = l.mask || "";
                                     layerObj.savedSketch = l.sketch || "";
-                                    layerObj.savedPatch = l.patch || "";
                                 });
 
                                 if (data.cavity) {
@@ -986,12 +1018,24 @@ app.registerExtension({
                         lastGeneratedImage = null;
                         redrawMasks();
                         currentMesh.traverse((child) => {
-                            if (child.isMesh && child.material) {
-                                if (child.material.map) child.material.map.dispose();
-                                child.material = new THREE.MeshStandardMaterial({
+                            if (child.isMesh) {
+                                const emptyMaterial = new THREE.MeshStandardMaterial({
                                     color: 0xffffff, roughness: 0.5
                                 });
-                                child.material.needsUpdate = true;
+                                if (currentToolMode === 'SKETCH') {
+                                    if (child.userData.originalMat) {
+                                        if (child.userData.originalMat.map) child.userData.originalMat.map.dispose();
+                                        child.userData.originalMat.dispose();
+                                    }
+                                    child.userData.originalMat = emptyMaterial;
+                                } else {
+                                    if (child.material) {
+                                        if (child.material.map) child.material.map.dispose();
+                                        child.material.dispose();
+                                    }
+                                    child.material = emptyMaterial;
+                                    child.material.needsUpdate = true;
+                                }
                             }
                         });
                         return null;
@@ -1148,19 +1192,27 @@ app.registerExtension({
 
                         currentMesh.traverse((child) => {
                             if (child.isMesh) {
-                                // Dispose old material and texture to prevent GPU memory leaks
-                                if (child.material) {
-                                    if (child.material.map) child.material.map.dispose();
-                                    child.material.dispose();
-                                }
-                                child.material = new THREE.MeshBasicMaterial({
+                                const newMat = new THREE.MeshBasicMaterial({
                                     map: canvasTexture,
                                     color: 0xffffff,
                                     side: THREE.DoubleSide,
-                                    // Enable transparency so masked-out regions show as transparent
                                     transparent: true,
                                 });
-                                child.material.needsUpdate = true;
+                                
+                                if (currentToolMode === 'SKETCH') {
+                                    if (child.userData.originalMat) {
+                                        if (child.userData.originalMat.map) child.userData.originalMat.map.dispose();
+                                        child.userData.originalMat.dispose();
+                                    }
+                                    child.userData.originalMat = newMat;
+                                } else {
+                                    if (child.material) {
+                                        if (child.material.map) child.material.map.dispose();
+                                        child.material.dispose();
+                                    }
+                                    child.material = newMat;
+                                    child.material.needsUpdate = true;
+                                }
                             }
                         });
 
@@ -1186,14 +1238,10 @@ app.registerExtension({
                     
                     const ctx = hiddenCanvas.getContext('2d');
                     
-                    // Create dedicated offscreen canvases for Sketch and Patch outputs
+                    // Create dedicated offscreen canvas for Sketch output
                     const sketchCanvas = document.createElement('canvas');
                     sketchCanvas.width = w; sketchCanvas.height = h;
                     const sketchCtx = sketchCanvas.getContext('2d');
-
-                    const patchCanvas = document.createElement('canvas');
-                    patchCanvas.width = w; patchCanvas.height = h;
-                    const patchCtx = patchCanvas.getContext('2d');
 
                     const isObjLoaded = currentMesh !== null;
 
@@ -1201,25 +1249,20 @@ app.registerExtension({
                         // Fallback to the loaded images if the OBJ isn't loaded yet
                         let maskBase64 = layer.savedMask || "";
                         let sketchBase64 = layer.savedSketch || "";
-                        let patchBase64 = layer.savedPatch || "";
 
                         // If not visible, return an empty/black layer to preserve prompt indexing
                         if (layer.isVisible === false) {
                             maskBase64 = "";
                             sketchBase64 = "";
-                            patchBase64 = "";
                         } else if (isObjLoaded || (layer.strokes && layer.strokes.length > 0)) {
                             ctx.clearRect(0, 0, w, h);
                             
-                            // ControlNet and Inpaint maps require a pure black background
+                            // ControlNet maps require a pure black background
                             sketchCtx.fillStyle = '#000000';
                             sketchCtx.fillRect(0, 0, w, h);
-                            patchCtx.fillStyle = '#000000';
-                            patchCtx.fillRect(0, 0, w, h);
 
                             ctx.globalAlpha = layer.opacity !== undefined ? layer.opacity : 1.0;
                             sketchCtx.globalAlpha = layer.opacity !== undefined ? layer.opacity : 1.0;
-                            patchCtx.globalAlpha = layer.opacity !== undefined ? layer.opacity : 1.0;
 
                             // 1. Draw Geometry Masks (Blue/Green Polygons)
                             ctx.fillStyle = '#ffffff';
@@ -1244,7 +1287,7 @@ app.registerExtension({
                             // 2. Draw Strokes to their respective separate canvases
                             if (layer.strokes && layer.strokes.length > 0) {
                                 layer.strokes.forEach(stroke => {
-                                    const activeCtx = stroke.mode === 'SKETCH' ? sketchCtx : patchCtx;
+                                    const activeCtx = sketchCtx;
                                     
                                     activeCtx.lineWidth = stroke.size;
                                     activeCtx.lineCap = 'round';
@@ -1256,14 +1299,8 @@ app.registerExtension({
                                         activeCtx.strokeStyle = 'rgba(0,0,0,1)';
                                     } else {
                                         activeCtx.globalCompositeOperation = 'source-over';
-                                        activeCtx.strokeStyle = '#ffffff'; // Both Canny and Inpaint use white strokes
-                                        
-                                        if (stroke.mode === 'PATCH') {
-                                            activeCtx.shadowColor = '#ffffff';
-                                            activeCtx.shadowBlur = 10; // Soft edge for inpainting
-                                        } else {
-                                            activeCtx.shadowBlur = 0; // Hard edge for Canny
-                                        }
+                                        activeCtx.strokeStyle = '#ffffff'; // Canny uses white strokes
+                                        activeCtx.shadowBlur = 0; // Hard edge for Canny
                                     }
 
                                     const pts = stroke.points;
@@ -1284,13 +1321,10 @@ app.registerExtension({
                                 
                                 sketchBase64 = sketchCanvas.toDataURL("image/png");
                                 layer.savedSketch = sketchBase64;
-                                patchBase64 = patchCanvas.toDataURL("image/png");
-                                layer.savedPatch = patchBase64;
                             }
                             
                             ctx.globalAlpha = 1.0;
                             sketchCtx.globalAlpha = 1.0;
-                            patchCtx.globalAlpha = 1.0;
                         }
 
                         const rawIndices = layer.pendingFaceIndices || (layer.faces ? layer.faces.map(f => f.faceIndex) : []);
@@ -1300,7 +1334,6 @@ app.registerExtension({
                             name: layer.inputRow.querySelectorAll('input[type="text"]')[0].value,
                             mask: maskBase64,
                             sketch: sketchBase64,
-                            patch: patchBase64,
                             faces: compressIndices(rawIndices),
                             strokes: layer.strokes || []
                         });
@@ -1327,6 +1360,54 @@ app.registerExtension({
                 // --- Three.js Initialization ---
                 const scene = new THREE.Scene();
                 scene.background = new THREE.Color(0x222222);
+
+                const liveCannyCanvas = document.createElement('canvas');
+                liveCannyCanvas.width = 1024;
+                liveCannyCanvas.height = 1024;
+                const liveCannyTexture = new THREE.CanvasTexture(liveCannyCanvas);
+                liveCannyTexture.colorSpace = THREE.SRGBColorSpace;
+
+                function updateLiveCannyPreview() {
+                    const ctx = liveCannyCanvas.getContext('2d');
+                    ctx.fillStyle = '#000000';
+                    ctx.fillRect(0, 0, 1024, 1024);
+                    
+                    Object.values(maskState).forEach(layer => {
+                        if (layer.strokes && layer.strokes.length > 0) {
+                            layer.strokes.forEach(stroke => {
+                                if (stroke.mode === 'SKETCH') {
+                                    ctx.lineWidth = stroke.size;
+                                    ctx.lineCap = 'round';
+                                    ctx.lineJoin = 'round';
+                                    
+                                    if (stroke.isEraser) {
+                                        ctx.globalCompositeOperation = 'destination-out';
+                                        ctx.strokeStyle = 'rgba(0,0,0,1)';
+                                    } else {
+                                        ctx.globalCompositeOperation = 'source-over';
+                                        ctx.strokeStyle = '#ffffff';
+                                    }
+                                    
+                                    const pts = stroke.points;
+                                    if (pts.length > 1) {
+                                        ctx.beginPath();
+                                        ctx.moveTo(pts[0][0], pts[0][1]);
+                                        for (let i = 1; i < pts.length; i++) {
+                                            ctx.lineTo(pts[i][0], pts[i][1]);
+                                        }
+                                        ctx.stroke();
+                                    } else if (pts.length === 1) {
+                                        ctx.beginPath();
+                                        ctx.arc(pts[0][0], pts[0][1], stroke.size / 2, 0, Math.PI * 2);
+                                        ctx.fillStyle = ctx.strokeStyle;
+                                        ctx.fill();
+                                    }
+                                }
+                            });
+                        }
+                    });
+                    liveCannyTexture.needsUpdate = true;
+                }
 
                 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
                 camera.position.set(0, 0, 5);
@@ -2528,6 +2609,7 @@ app.registerExtension({
                         currentStroke.points.push([canvasX, canvasY]);
 
                         redrawStrokes();
+                        if (typeof updateLiveCannyPreview === 'function') updateLiveCannyPreview();
                         return;
                     }
 
