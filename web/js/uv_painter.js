@@ -64,15 +64,20 @@ app.registerExtension({
 
                 // Create the DOM container for the custom UI
                 this.domContainer = document.createElement("div");
-                this.domContainer.style.position = "absolute";
-                this.domContainer.style.transformOrigin = "0 0";
+                // NOTE: position / transformOrigin / zIndex intentionally omitted --
+                // addDOMWidget's wrapper owns positioning, scaling and stacking.
+                // position:relative keeps internal absolute children (toolbar,
+                // loadingOverlay) anchored to this container.
+                this.domContainer.style.position = "relative";
+                this.domContainer.style.width = "100%";
+                this.domContainer.style.height = "100%";
+                this.domContainer.style.boxSizing = "border-box";
                 this.domContainer.style.display = "flex";
                 this.domContainer.style.flexDirection = "column";
                 this.domContainer.style.backgroundColor = "#111";
                 this.domContainer.style.border = "1px solid #444";
                 this.domContainer.style.borderRadius = "4px";
                 this.domContainer.style.overflow = "hidden";
-                this.domContainer.style.zIndex = "10";
 
                 // Top Bar
                 const topBar = document.createElement("div");
@@ -995,7 +1000,13 @@ app.registerExtension({
                 loadingOverlay.innerText = "Baking High-Res Cavity Map...";
                 this.domContainer.appendChild(loadingOverlay);
 
-                document.body.appendChild(this.domContainer);
+                // Render the painter INLINE inside the node via ComfyUI's DOM-widget
+                // layer. The widget wrapper owns position/transform/size and hides the
+                // element when the node is collapsed or removed.
+                this.uvWidget = this.addDOMWidget("uv_painter", "div", this.domContainer, {
+                    serialize: false,
+                    hideOnZoom: false,
+                });
 
                 let currentBakedCavity = null;
 
@@ -2455,9 +2466,7 @@ app.registerExtension({
                 const parentOnRemoved = nodeType.prototype.onRemoved;
                 this.onRemoved = function () {
                     cancelAnimationFrame(animationId);
-                    if (this.domContainer) {
-                        this.domContainer.remove();
-                    }
+                    // domContainer is auto-removed by addDOMWidget's lifecycle.
                     if (parentOnRemoved) parentOnRemoved.apply(this, arguments);
                 };
 
@@ -2698,53 +2707,9 @@ app.registerExtension({
                 };
             };
 
-            // Hook into drawing to track and align DOM element to node perfectly
-            const onDrawBackground = nodeType.prototype.onDrawBackground;
-            nodeType.prototype.onDrawBackground = function (ctx) {
-                if (onDrawBackground) onDrawBackground.apply(this, arguments);
-
-                if (this.flags.collapsed) {
-                    if (this.domContainer && this.domContainer.style.display !== "none") {
-                        this.domContainer.style.display = "none";
-                    }
-                    return;
-                }
-
-                if (this.domContainer && this.domContainer.style.display === "none") {
-                    this.domContainer.style.display = "flex";
-                }
-
-                const titleHeight = LiteGraph.NODE_TITLE_HEIGHT || 30;
-
-                const canvas = app.canvas;
-                const scale = canvas.ds.scale;
-                const offsetX = canvas.ds.offset[0];
-                const offsetY = canvas.ds.offset[1];
-
-                const nodeX = this.pos[0];
-                const nodeY = this.pos[1];
-
-                const canvasRect = canvas.canvas.getBoundingClientRect();
-
-                const screenX = canvasRect.left + (nodeX + offsetX) * scale;
-                const screenY = canvasRect.top + (nodeY + offsetY) * scale;
-
-                // Define precise margins to clear the ports
-                const leftMargin = 15;
-                const rightMargin = 15;
-                // Push the UI down 140px to clear the "image" input and output labels
-                const topMargin = 140;
-                const bottomMargin = 10;
-
-                const finalX = screenX + leftMargin * scale;
-                const finalY = screenY + (titleHeight + topMargin) * scale;
-
-                if (this.domContainer) {
-                    this.domContainer.style.transform = `translate(${finalX}px, ${finalY}px) scale(${scale})`;
-                    this.domContainer.style.width = `${this.size[0] - leftMargin - rightMargin}px`;
-                    this.domContainer.style.height = `${this.size[1] - titleHeight - topMargin - bottomMargin}px`;
-                }
-            };
+            // NOTE: the manual onDrawBackground positioning/scaling override was
+            // removed. ComfyUI's addDOMWidget layer now owns positioning, scaling,
+            // sizing and collapse-hiding of the painter container every frame.
         }
     }
 });
